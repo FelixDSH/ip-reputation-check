@@ -84,7 +84,11 @@ def _conf_bool(votes):
         val = tw_true > tw_false
     support = [SOURCE_LABEL.get(s, s) for s, v in known if v == val]
     oppose = [SOURCE_LABEL.get(s, s) for s, v in known if v != val]
-    return {"level": lvl, "n": n, "value": val, "support": support, "oppose": oppose}
+    # 独立性未知：仅 B/C 源数量一致不自动升为"高"；需 A 级来源也支持该值
+    if lvl == "high" and not any(SOURCE_TIER.get(s) == "A" for s, v in known if v == val):
+        lvl = "medium"
+    return {"level": lvl, "n": n, "value": val, "support": support,
+            "oppose": oppose, "independence": "unknown"}
 
 def _conf_cat(votes):
     """类别型结论（如国家）的置信度：按源等级加权求众数占比。"""
@@ -106,7 +110,11 @@ def _conf_cat(votes):
         lvl = "low"
     support = [SOURCE_LABEL.get(s, s) for s, v in known if v == val]
     oppose = [SOURCE_LABEL.get(s, s) for s, v in known if v != val]
-    return {"level": lvl, "n": n, "value": val, "support": support, "oppose": oppose}
+    # 独立性未知：仅 B/C 源数量一致不自动升为"高"；需 A 级来源也支持该值
+    if lvl == "high" and not any(SOURCE_TIER.get(s) == "A" for s, v in known if v == val):
+        lvl = "medium"
+    return {"level": lvl, "n": n, "value": val, "support": support,
+            "oppose": oppose, "independence": "unknown"}
 
 def _platform_level(score):
     if score < 25:

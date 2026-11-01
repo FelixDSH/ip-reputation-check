@@ -367,11 +367,12 @@ def _render_probe(d):
     if d.get("guard"):
         print("⚠️ " + d["guard"])
     if d.get("mode") == "proxy":
-        print("⚠️ 同一代理可能按域名分流；出口回显只代表回显服务的出口，不保证所有目标看到同一 IP。")
+        print("⚠️ 出口匹配是必要条件，非充分条件：代理可能按域名/IPv6 分流，无法验证目标侧出口时按实际出口保守归因。")
     print("站点              状态                            详情")
     for r in d.get("targets", []):
         print("  %-12s %-28s %s" % (r["site"], r["verdict"], r["detail"]))
-    print("说明: 200≠功能可用；403≠封号；401 可能只是没带 key；未登录/未付费，仅只读探测。")
+    print("说明: 200≠功能可用；403≠封号；401 可能只是没带 key；仅网页/公开 API 端点，未验证 App 功能；"
+          "请求耗时含代理与 TLS，非线路 ping/丢包。未登录/未付费，仅只读探测。")
 
 
 def cmd_probe(args):
@@ -438,14 +439,15 @@ def cmd_node(args):
     if guard:
         print("⚠️ %s —— 实测只归因于实际出口" % guard)
     if proxy:
-        print("⚠️ 同一代理可能按域名分流到不同出口；出口回显只代表回显服务的出口，不保证所有目标看到同一 IP。")
+        print("⚠️ 出口回显匹配是必要条件，非充分条件：同一代理可能按域名/IPv6 分流到不同出口，"
+              "无法验证目标侧出口时，实测结论按实际出口保守归因。")
     print("场景目标:")
     for r in rows:
         print("  %-12s %-28s %s" % (r["site"], r["verdict"], r["detail"]))
     print("建议:")
     for a in advice:
         print("  - " + a)
-    print("说明: 短时实测，不等于长期表现；不预测封号/账号安全。")
+    print("说明: 短时实测，不等于长期表现；仅网页/公开 API 端点，未验证 App 功能；请求耗时非线路 ping/丢包；不预测封号/账号安全。")
     return 0
 
 

@@ -158,6 +158,13 @@ class TestScoring(unittest.TestCase):
         self.assertTrue(c["value"])
         self.assertEqual(c["level"], "high")
 
+    def test_conf_no_count_boost_without_A(self):
+        # 仅 B/C 源一致，不因数量升为"高"（独立性未知）
+        c = ic._conf_bool([("iphub", True), ("scamalytics", True), ("ipsum", True)])
+        self.assertTrue(c["value"])
+        self.assertEqual(c["level"], "medium")
+        self.assertEqual(c.get("independence"), "unknown")
+
     def test_classify_type(self):
         base = {"tor": False, "vpn": False, "proxy": False, "hosting": False, "mobile": False}
         self.assertEqual(ic.classify_ip_type(base, {"type": "Business"}, "Acme Corp"), "企业网络")

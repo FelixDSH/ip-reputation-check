@@ -49,10 +49,11 @@ tests/  (test_core.py, test_consistency.py)
 ## 自检 / 测试
 
 ```bash
-python tests/test_core.py          # 核心逻辑单测：各源 parser、_vote 冲突、geo 选取、评分阈值、置信度平票、CSV 注入、iphub 分支
-python tests/test_fixtures.py      # 固定响应快照(test_fixtures/fixtures) 的解析回归
-python tests/test_consistency.py   # 10 种 IP 类型 × 文案自洽性
-python scripts/ipcheck.py health    # 源健康检查：逐源探测可用性/延迟（上游失效显式降级）
+python tests/test_core.py            # 核心逻辑单测
+python tests/test_counterexamples.py # 之前审计反例的硬性回归（空数据/仅地理/仅RDAP/空字段/DNS临时失败/探针误判/JSON）
+python tests/test_fixtures.py        # 固定响应快照解析回归
+python tests/test_consistency.py     # 10 种 IP 类型 × 文案自洽性
+python scripts/ipcheck.py health      # 源健康检查
 ```
 CI（`.github/workflows/ci.yml`）在 push/PR 时跑 **Python 3.8 / 3.10 / 3.12 + Windows** 矩阵，并做 `--version`/`--help` 冒烟。
 
@@ -338,6 +339,7 @@ python scripts/ipcheck.py check 8.8.8.8
 
 报表会输出：`置信度: 地理:高 代理:中 VPN:低 托管:高 滥用:低`
 - **高** = 多个（含高等级）源结果一致；**中** = 基本一致但有分歧；**低** = 单一源或源间冲突。
+- **数量 ≠ 独立证据**：免费源常共享上游；**没有 A 级来源支持时，即使多个 B/C 源一致，证据等级最高只到「中」**（JSON 里 `independence: unknown`）。
 - **滥用为「低」只代表没有权威源命中，不等于干净**（AbuseIPDB 官方也强调 0 报告 ≠ 安全）。
 
 ### 能做什么 / 不能做什么
@@ -345,6 +347,11 @@ python scripts/ipcheck.py check 8.8.8.8
 - ✅ 平台适配度初筛：这 IP 适不适合注册/使用社媒、AI 工具、电商支付、流媒体。
 - ✅ 多源对比 + 冲突提示：让你知道**这个结论有多可信**，而不是假装权威。
 - ❌ 不能当风控/封禁的唯一依据；地理城市级只有 ~50–80% 准确；住宅代理必然有漏报。
+- ❌ **实测只覆盖"网页/公开 API 端点"**：App 的登录/上传/推送/私有协议未验证；请求耗时是"经该代理的请求耗时"，**不是线路 ping/丢包**。
+
+### 合规边界（自用/低频）
+- 自动探活第三方平台须遵守其**服务条款 / API 政策 / 数据许可**；`robots.txt` 仅在使用爬虫访问时适用，**不等同于自动化授权**。
+- 只读、低频、不登录/注册/付费；免费源（Spamhaus/VirusTotal 等）有速率与商用/再分发条款，开源分发需逐源声明；代理凭据不进日志/报告。
 
 ### 想要更高可信度 → 换商业 API
 `MaxMind GeoIP2 / minFraud`、`IPQualityScore`、`Spur`、`VirusTotal`、`Spamhaus`、`Cisco Talos` 才适合严谨风控。

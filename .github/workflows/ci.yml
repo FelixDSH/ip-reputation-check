@@ -22,6 +22,8 @@ jobs:
           python-version: ${{ matrix.py }}
       - name: 核心逻辑单测
         run: python tests/test_core.py
+      - name: 审计反例回归
+        run: python tests/test_counterexamples.py
       - name: 固定样本解析回归
         run: python tests/test_fixtures.py
       - name: IP 类型 × 文案一致性自检
