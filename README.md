@@ -20,7 +20,7 @@ ipinfo.io、iphub.info、scamalytics.com、abuseipdb.com 手动输入——非�
 | ipwho.is | 地理 / ASN（备用源） | 否 |
 | proxycheck.io | proxy / VPN / 网络类型 / risk | 否（免 key 有日限） |
 | scamalytics.com | Fraud Score + 风险等级 | 否（网页解析；可配 API） |
-| iphub.info | block 代理等级 | 是：`IPHUB_API_KEY` |
+| iphub.info | block 等级 + proxyType（proxy/tor/hosting/residentialProxy） | 游客免 key（高信誉出口直出，机房可能触发 Turnstile）；推荐 `IPHUB_API_KEY` |
 | abuseipdb.com | Abuse Confidence / 报告数 | 是：`ABUSEIPDB_API_KEY` |
 
 缺 key 的源会自动跳过并在报告里标注，不影响其它指标。
@@ -96,6 +96,59 @@ ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only .
 ```
 
 `--only` 可选值：`ipinfo,ipapi,ipwhois,proxycheck,scamalytics,iphub,abuseipdb`
+
+## 人机验证（Captcha）怎么解决
+
+不同站点的反爬强度不一样，先分清三类：
+
+| 类型 | 站点 | 表现 | 对策 |
+|------|------|------|------|
+| 干净 JSON API | ipinfo / ip-api / ipwho.is / proxycheck | 无验证码 | 直接用（本工具默认就走这些） |
+| 站点要 token | **iphub 游客接口** | 机房/VPN 出口返回 `captchaRequired:true`（Cloudflare Turnstile）；住宅出口通常直接出结果 | ① 免费 API key（首选）② 真实浏览器人工过验证 ③ 第三方打码 |
+| Cloudflare 403 | **abuseipdb 网页版** | 直接 403 | 用官方 API key（免费 1000/天） |
+
+**核心结论：能用官方/免费 JSON API 就别硬刚验证码**——最稳、最省事。本工具已把所有能免验证码的源做成默认通道，验证码只在 iphub 游客接口 / abuseipdb 网页版出现，且都能被 API key 彻底绕开。
+
+真必须过验证码时，按可靠度从高到低：
+
+**1) 官方 API Key（首选）**
+- iphub：iphub.info 免费注册 → `IPHUB_API_KEY`
+- abuseipdb：abuseipdb.com 免费 1000 次/天 → `ABUSEIPDB_API_KEY`
+
+**2) 真实浏览器自动化（人工过一次）**
+- 用 Playwright 起真实 Chrome（非 headless），人工完成 Turnstile，脚本抓 `/api/lookup/ip` 的 JSON。
+- 本仓库自带：`python scripts/iphub_browser.py <IP>`
+
+**3) 第三方打码（Turnstile 求解）**
+- 服务：CapSolver / 2Captcha / YesCaptcha，均支持 `AntiTurnstileTaskProxyLess`。
+- 流程：取 sitekey + pageurl → 建任务 → 轮询拿 token → 作为 `cf-turnstile-response` 提交。
+- sitekey 从页面里的 `challenges.cloudflare.com/turnstile/...?sitekey=XXXX` iframe src 提取。
+
+```python
+# CapSolver 解 Turnstile 骨架（占位符自行替换）
+import os, time, requests
+SITEKEY, PAGEURL, APIKEY = "TURNSTILE_SITEKEY", "https://iphub.info/", "CAPSOLVER_KEY"
+tid = requests.post("https://api.capsolver.com/createTask", json={
+    "clientKey": APIKEY,
+    "task": {"type": "AntiTurnstileTaskProxyLess",
+             "websiteURL": PAGEURL, "websiteKey": SITEKEY}}).json()["taskId"]
+while True:
+    r = requests.post("https://api.capsolver.com/getTaskResult",
+                      json={"clientKey": APIKEY, "taskId": tid}).json()
+    if r.get("status") == "ready":
+        os.environ["IPHUB_TURNSTILE_TOKEN"] = r["solution"]["token"]; break
+    time.sleep(2)
+# 之后：python scripts/ipcheck.py check <IP> --only iphub  # 会自动带上 token
+```
+
+**4) 降低触发概率**
+- 用住宅/移动代理出口（机房 IP 几乎必触发）
+- 规范 UA / Accept-Language、控制频率（`--interval`）、复用 cookie 会话
+- 别用裸脚本高频打同一接口
+
+> 说明：验证码是对方的风控。优先官方 API；自用/有权限场景下再考虑浏览器或打码，并控制频率。
+
+## 命令行参数
 
 ## 风险判定模型
 

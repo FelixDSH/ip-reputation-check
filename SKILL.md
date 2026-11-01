@@ -26,11 +26,12 @@ license: MIT
 ## 环境要求
 
 - Python 3.8+（无第三方依赖）。
-- 可选 API Key（不配则自动跳过该源，其余照常）：
-  - `IPHUB_API_KEY`（iphub.info，免费注册可得）
-  - `ABUSEIPDB_API_KEY`（abuseipdb.com，免费 1000 次/天）
+- 可选 API Key（不配则对应源自动降级/跳过，其余照常）：
+  - `IPHUB_API_KEY`（iphub.info，免费注册；不配则走网站游客接口，机房/VPN 出口可能触发 Turnstile）
+  - `ABUSEIPDB_API_KEY`（abuseipdb.com，免费 1000 次/天；网页版直连会 403，必须用 key）
   - `IPINFO_TOKEN`（提高 ipinfo 限额，可选）
   - `SCAMALYTICS_USER` + `SCAMALYTICS_KEY`（走官方 API，缺省用网页解析）
+  - `IPHUB_TURNSTILE_TOKEN`（人工过 iphub 验证后拿到的 token，可选）
 
 ## 核心用法（对 agent 的硬性步骤）
 
@@ -91,7 +92,7 @@ python scripts/ipcheck.py stability --interactive
 ## 注意事项（写进报告时可选提示，不影响执行）
 
 - 免费源有速率限制（ip-api 45 次/分、proxycheck 免 key 约 100 次/天），批量检测请加 `--interval` 或配 key。
-- abuseipdb 网页版对脚本返回 403，必须走官方 API Key，否则该指标显示"需 key"。
+- **人机验证**：ipinfo / ip-api / ipwho.is / proxycheck / scamalytics 都是干净的 JSON 接口，无验证码；只有 **iphub 游客接口**（可能弹 Cloudflare Turnstile）和 **abuseipdb 网页版**（403）会拦。对策按优先级：① 配免费 `IPHUB_API_KEY` / `ABUSEIPDB_API_KEY`（彻底免验证码，首选）；② `python scripts/iphub_browser.py <IP>` 用真实 Chrome 人工过验证；③ 设 `IPHUB_TURNSTILE_TOKEN` 或接打码服务。详见 README「人机验证」章节。
 - 判定为"代理/VPN/机房"不等于恶意；很多 CDN（如 Cloudflare、Google DNS）也会被标 hosting。
 
 ## 作为 skill 安装

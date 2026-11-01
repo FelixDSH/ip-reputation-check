@@ -106,6 +106,33 @@ def _j(text):
     return json.loads(text)
 
 
+def http_post_json(url, body_obj, headers=None, timeout=DEFAULT_TIMEOUT, retries=1):
+    """POST JSON，返回 (status, text)。"""
+    h = {"User-Agent": UA, "Accept": "application/json",
+         "Content-Type": "application/json"}
+    if headers:
+        h.update(headers)
+    payload = json.dumps(body_obj).encode("utf-8")
+    last = None
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request(url, data=payload, headers=h, method="POST")
+            with _OPENER.open(req, timeout=timeout) as resp:
+                raw = resp.read()
+                enc = resp.headers.get_content_charset() or "utf-8"
+                return resp.status, raw.decode(enc, "replace")
+        except urllib.error.HTTPError as e:
+            try:
+                return e.code, e.read().decode("utf-8", "replace")
+            except Exception:
+                last = e
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if attempt < retries:
+                time.sleep(0.6 * (attempt + 1))
+    raise last
+
+
 # --------------------------------------------------------------------------- #
 # 各情报源：统一返回 {source, ok, data, error}
 # --------------------------------------------------------------------------- #
@@ -221,21 +248,57 @@ def src_scamalytics(ip, timeout):
 
 
 def src_iphub(ip, timeout):
+    """有 key 走官方 v2 API；无 key 走网站游客接口 POST /api/lookup/ip。
+    游客接口对高信誉出口直接出结果，对机房/VPN 出口可能返回 Turnstile 人机验证。"""
     key = os.environ.get("IPHUB_API_KEY", "").strip()
-    if not key:
-        raise RuntimeError("未配置 IPHUB_API_KEY，跳过")
-    _, txt = http_get("https://v2.api.iphub.info/ip/%s" % ip,
-                      headers={"X-Key": key}, timeout=timeout)
+    api_err = None
+    if key:
+        try:
+            _, txt = http_get("https://v2.api.iphub.info/ip/%s" % ip,
+                              headers={"X-Key": key}, timeout=timeout)
+            d = _j(txt)
+            if d.get("error"):
+                raise RuntimeError(str(d.get("error")))
+            block = d.get("block")
+            return {
+                "block": block,
+                "proxy": (block == 1) if block is not None else None,
+                "tor": None, "hosting": None, "residential_proxy": None,
+                "country_code": d.get("countryCode"), "isp": d.get("isp"),
+                "asn": d.get("asn"), "via": "api",
+            }
+        except Exception as e:  # noqa: BLE001
+            api_err = e  # 有 key 但失败则回退游客接口
+
+    token = os.environ.get("IPHUB_TURNSTILE_TOKEN", "").strip() or None
+    body = {"ip": ip, "apiKeyID": "guest", "cf-turnstile-response": token}
+    _, txt = http_post_json("https://iphub.info/api/lookup/ip", body, headers={
+        "Origin": "https://iphub.info", "Referer": "https://iphub.info/"}, timeout=timeout)
     d = _j(txt)
-    if d.get("error"):
-        raise RuntimeError(str(d.get("error")))
-    block = d.get("block")
-    return {
-        "block": block,
-        "proxy": (block == 1) if block is not None else None,
-        "country_code": d.get("countryCode"), "isp": d.get("isp"),
-        "asn": d.get("asn"),
-    }
+    if d.get("success"):
+        data = d.get("data", {}) or {}
+        pt = data.get("proxyType") or {}
+        block = data.get("block")
+        return {
+            "block": block,
+            "proxy": bool(pt.get("proxy")) or (block == 1),
+            "tor": pt.get("tor"),
+            "hosting": pt.get("hosting"),
+            "residential_proxy": pt.get("residentialProxy"),
+            "relay": pt.get("relay"),
+            "cloud_gaming": pt.get("cloudGaming"),
+            "country_code": data.get("countryCode"),
+            "country": data.get("countryName"),
+            "isp": data.get("isp"), "asn": data.get("asn"),
+            "hostname": data.get("hostname"), "via": "guest",
+        }
+    if d.get("captchaRequired"):
+        hint = ("需人机验证(Turnstile)：配 IPHUB_API_KEY，或运行 scripts/iphub_browser.py <IP>，"
+                "或设 IPHUB_TURNSTILE_TOKEN（详见 README「人机验证」）")
+        if api_err:
+            hint += "（注：提供的 API Key 调用失败：%s）" % api_err
+        raise RuntimeError(hint)
+    raise RuntimeError(d.get("error") or d.get("message") or "iphub 查询失败")
 
 
 def src_abuseipdb(ip, timeout):
@@ -365,10 +428,11 @@ def aggregate(ip, results):
     hosting = _vote(conflicts, "Hosting", [
         ("ipapi", ipapi.get("hosting")),
         ("proxycheck", proxycheck.get("hosting")),
+        ("iphub", iphub.get("hosting")),
         ("ipinfo", _hosting_from_org(asn_org or isp)),
     ])
     mobile = ipapi.get("mobile") if ipapi.get("mobile") is not None else None
-    tor = abuse.get("is_tor")
+    tor = _pick_bool(abuse.get("is_tor"), iphub.get("tor"))
 
     fraud_score = _to_int(scam.get("fraud_score"))
     fraud_risk = scam.get("risk")
@@ -381,11 +445,13 @@ def aggregate(ip, results):
         "geo": geo,
         "network": {"asn_org": asn_org, "isp": isp, "hostname": hostname,
                     "usage_type": abuse.get("usage_type"), "type": proxycheck.get("type")},
-        "flags": {"proxy": proxy, "vpn": vpn, "hosting": hosting, "mobile": mobile, "tor": tor},
+        "flags": {"proxy": proxy, "vpn": vpn, "hosting": hosting, "mobile": mobile,
+                  "tor": tor, "residential_proxy": iphub.get("residential_proxy")},
         "scores": {"fraud_score": fraud_score, "fraud_risk": fraud_risk,
                    "abuse_confidence": abuse_conf,
                    "abuse_reports": _to_int(abuse.get("total_reports")),
-                   "proxycheck_risk": _to_int(proxycheck.get("risk"))},
+                   "proxycheck_risk": _to_int(proxycheck.get("risk")),
+                   "iphub_block": iphub.get("block")},
         "verdict": {"risk_score": risk_score, "risk_level": risk_level,
                     "label": risk_label(risk_level)},
         "conflicts": conflicts,
@@ -531,6 +597,13 @@ def render_report(agg, color=True):
                  "    VPN: " + _fmt_bool(fl.get("vpn")) +
                  "    托管 Hosting: " + _fmt_bool(fl.get("hosting")))
     lines.append("移动网络    : " + _fmt_bool(fl.get("mobile")) + "    Tor: " + _fmt_bool(fl.get("tor")))
+    extra = []
+    if fl.get("residential_proxy") is not None:
+        extra.append("住宅代理: " + _fmt_bool(fl.get("residential_proxy")))
+    if sc.get("iphub_block") is not None:
+        extra.append("iphub block: %s（0=住宅 / 1=坏 / 2=混合）" % sc.get("iphub_block"))
+    if extra:
+        lines.append("附加信号    : " + "    ".join(extra))
     lines.append("-" * 60)
     fs = sc.get("fraud_score")
     fr = sc.get("fraud_risk")
