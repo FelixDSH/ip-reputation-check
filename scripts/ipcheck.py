@@ -70,7 +70,18 @@ def _setup_console():
             pass
 
 
+VERSION = "1.0.0"
 DEFAULT_TIMEOUT = 12
+
+# 综合风险权重（经验值，非校准概率；用于初筛排序，不代表真实概率）
+RISK_W_PROXY = 30
+RISK_W_VPN = 35
+RISK_W_HOSTING = 10
+RISK_W_TOR = 60
+RISK_W_MOBILE = -5
+RISK_T_CLEAN = 20   # <20 干净
+RISK_T_LOW = 50     # <50 中低
+RISK_T_MEDIUM = 80  # <80 中高，>=80 高
 ALL_SOURCES = ["ipinfo", "ipapi", "ipwhois", "proxycheck", "scamalytics",
                "iphub", "abuseipdb", "stopforumspam", "blocklistde", "ipsum",
                "spamhaus", "virustotal", "dbip", "maxmind"]
@@ -135,12 +146,8 @@ SERVICE_REGIONS = {
 # HTTP 基础
 # --------------------------------------------------------------------------- #
 def _make_opener():
+    # 使用标准安全上下文（不降低 TLS 级别）。个别站点握手失败时再按需回退，避免全局降级。
     ctx = ssl.create_default_context()
-    # 部分环境证书链不全，宽松但不关闭校验的主体行为
-    try:
-        ctx.set_ciphers("DEFAULT@SECLEVEL=1")
-    except Exception:
-        pass
     return urllib.request.build_opener(
         urllib.request.ProxyHandler(),          # 尊重系统代理 / 环境变量
         urllib.request.HTTPSHandler(context=ctx),
@@ -462,6 +469,27 @@ def src_ipsum(ip, timeout):
             "total_ips": len(data)}
 
 
+def _dns_query_a(name, timeout):
+    """在独立线程里做 DNS A 查询并限时等待，避免改全局 socket 超时（线程安全）。"""
+    import threading
+    box = {}
+
+    def worker():
+        try:
+            box["a"] = socket.gethostbyname(name)
+        except Exception as e:  # noqa: BLE001
+            box["e"] = e
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    t.join(timeout)
+    if "a" in box:
+        return box["a"]
+    if "e" in box:
+        raise box["e"]
+    raise socket.timeout("dns timeout")
+
+
 def src_spamhaus(ip, timeout):
     """免 key：Spamhaus ZEN DNSBL（SBL/XBL/PBL，权威反垃圾/被入侵源名单）。"""
     from ipaddress import ip_address
@@ -472,14 +500,12 @@ def src_spamhaus(ip, timeout):
     if a.version != 4:
         raise RuntimeError("Spamhaus DNSBL 仅支持 IPv4")
     rev = ".".join(reversed(ip.split("."))) + ".zen.spamhaus.org"
-    old = socket.getdefaulttimeout()
     try:
-        socket.setdefaulttimeout(min(timeout, 8))
-        ans = socket.gethostbyname(rev)
+        ans = _dns_query_a(rev, min(timeout, 8))
     except socket.gaierror:
         return {"listed": False, "zones": [], "answer": None}
-    finally:
-        socket.setdefaulttimeout(old)
+    except socket.timeout:
+        raise RuntimeError("Spamhaus DNS 查询超时")
     if ans.startswith("127.255.255."):
         raise RuntimeError("Spamhaus 拒绝当前 DNS 出口（公共解析器/超量），请直连或降低频率")
     code_map = {
@@ -912,8 +938,16 @@ def render_regions(reg):
     return "\n".join(lines)
 
 
+def _csv_safe(v):
+    """防 CSV 公式注入：以 = + - @ 等开头的单元格前置单引号。"""
+    s = "" if v is None else str(v)
+    if s and s[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + s
+    return s
+
+
 def write_csv(rows, path):
-    """把检测结果导出 CSV（UTF-8-BOM，Excel 可直接打开）。"""
+    """把检测结果导出 CSV（UTF-8-BOM，Excel 可直接打开；已做公式注入防护）。"""
     import csv
     cols = ["ip", "country", "city", "asn_org", "ip_type", "proxy", "vpn", "hosting",
             "mobile", "fraud_score", "abuse_confidence", "spamhaus", "vt_malicious",
@@ -922,7 +956,7 @@ def write_csv(rows, path):
         w = csv.writer(f)
         w.writerow(cols)
         for r in rows:
-            w.writerow([r.get(c, "") for c in cols])
+            w.writerow([_csv_safe(r.get(c, "")) for c in cols])
     return path
 
 
@@ -1203,25 +1237,26 @@ def render_env(env):
 
 
 def compute_risk(fraud, abuse, proxy, vpn, hosting, tor, mobile, free_pts=0):
+    """经验加权评分（权重见 RISK_W_*，非校准概率）。取外部信号与本地信号的最大值。"""
     ext = max([x for x in (fraud, abuse) if x is not None], default=0)
     pts = 0
     if proxy:
-        pts += 30
+        pts += RISK_W_PROXY
     if vpn:
-        pts += 35
+        pts += RISK_W_VPN
     if hosting:
-        pts += 10
+        pts += RISK_W_HOSTING
     if tor:
-        pts += 60
+        pts += RISK_W_TOR
     if mobile:
-        pts -= 5
+        pts += RISK_W_MOBILE
     pts = max(0, pts)
     score = min(100, max(ext, pts, free_pts))
-    if score < 20:
+    if score < RISK_T_CLEAN:
         level = "clean"
-    elif score < 50:
+    elif score < RISK_T_LOW:
         level = "low"
-    elif score < 80:
+    elif score < RISK_T_MEDIUM:
         level = "medium"
     else:
         level = "high"
@@ -1618,6 +1653,8 @@ def cmd_check(args):
     csv_rows = []
     rc = 0
     for idx, ip in enumerate(ips):
+        if idx > 0 and getattr(args, "interval", 0):
+            time.sleep(args.interval)
         try:
             ip_address(ip)
         except ValueError:
@@ -1760,6 +1797,7 @@ def build_parser():
                "  ipcheck myip\n"
                "  ipcheck stability --rounds 5 --interval 3\n"
                "  ipcheck stability --interactive\n")
+    p.add_argument("--version", action="version", version="ipcheck " + VERSION)
     sub = p.add_subparsers(dest="cmd")
 
     pc = sub.add_parser("check", help="检测一个或多个 IP")
@@ -1776,6 +1814,8 @@ def build_parser():
     pc.add_argument("--regions", action="store_true", help="追加各服务在 IP 所在国的可用性(OpenAI/Netflix/PayPal 等)")
     pc.add_argument("--gateway", default=None,
                     help="走自建网关（也可用环境变量 IPCHECK_GATEWAY），客户端无需任何源 key")
+    pc.add_argument("--interval", type=float, default=0.0,
+                    help="批量时每个 IP 之间的间隔秒（防免费源限流）")
     pc.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     pc.add_argument("--no-color", action="store_true")
     pc.set_defaults(func=cmd_check)
@@ -1820,7 +1860,8 @@ def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     # 简化：允许直接 `ipcheck.py 8.8.8.8`（等价于 check）
     # 简化：允许直接 `ipcheck.py 8.8.8.8` 或 `ipcheck.py --file x.txt`（等价于 check）
-    if argv and argv[0] not in ("check", "myip", "stability", "open", "watch", "-h", "--help"):
+    if argv and argv[0] not in ("check", "myip", "stability", "open", "watch",
+                                "-h", "--help", "--version", "-V") and not argv[0].startswith("-"):
         argv = ["check"] + argv
     p = build_parser()
     if not argv:

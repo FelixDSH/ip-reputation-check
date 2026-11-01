@@ -5,12 +5,26 @@ on:
   pull_request:
 
 jobs:
-  consistency:
-    runs-on: ubuntu-latest
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, py: "3.8" }
+          - { os: ubuntu-latest, py: "3.10" }
+          - { os: ubuntu-latest, py: "3.12" }
+          - { os: windows-latest, py: "3.12" }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.py }}
+      - name: 核心逻辑单测
+        run: python tests/test_core.py
       - name: IP 类型 × 文案一致性自检
         run: python tests/test_consistency.py
+      - name: CLI 冒烟
+        run: |
+          python scripts/ipcheck.py --version
+          python scripts/ipcheck.py --help

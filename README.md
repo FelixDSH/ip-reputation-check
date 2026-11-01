@@ -5,7 +5,7 @@
 >
 > ⚠️ **定位：多源聚合初筛 + 置信度提示，不是权威风控判定。** 免费源精度有限，重要决策请交叉验证或改用商业 API（见下文权威替代）。
 
-![demo](examples/demo.txt)
+示例输出见 [examples/demo.txt](examples/demo.txt)。
 
 ## 极简用法
 
@@ -16,7 +16,7 @@ python scripts/ipcheck.py 8.8.8.8            # 直接给 IP，无需子命令
 python scripts/ipcheck.py 8.8.8.8 --brief    # 一行式简报
 ```
 
-默认**零配置**即可运行（5 个免 key 源）。只有需要下面两项额外指标时，才各自配**自己的**免费 key：
+默认**零配置**即可运行（约 10 个免 key 源：地理/代理/欺诈/滥用多源聚合）。只有需要下面两项额外指标时，才各自配**自己的**免费 key：
 
 | 你想要 | 额外条件 |
 |--------|----------|
@@ -28,9 +28,10 @@ python scripts/ipcheck.py 8.8.8.8 --brief    # 一行式简报
 ## 自检 / 测试
 
 ```bash
-python tests/test_consistency.py
+python tests/test_core.py          # 核心逻辑单测：各源 parser、_vote 冲突、geo 选取、评分阈值、置信度平票、CSV 注入、iphub 分支
+python tests/test_consistency.py   # 10 种 IP 类型 × 文案自洽性
 ```
-校验 10 种 IP 类型的「平台适配度 / 使用建议 / 平台可用度」文案自洽性，防止「企业网络被写成住宅」「类型不确定」这类文案回归 bug。GitHub Actions（`.github/workflows/ci.yml`）已配置为每次 push 自动跑。
+CI（`.github/workflows/ci.yml`）在 push/PR 时跑 **Python 3.8 / 3.10 / 3.12 + Windows** 矩阵，并做 `--version`/`--help` 冒烟。
 
 ## 环境要求（用户要装什么？）
 
@@ -124,17 +125,35 @@ IP 信誉检测报告  212.68.185.88
 ASN / 组织  : AS58325 Hydra Communications Ltd
 ISP         : Hydra Communications Ltd
 网络类型    : VPN
+IP 类型     : VPN
 ------------------------------------------------------------
 代理 Proxy  : 是    VPN: 是    托管 Hosting: 否
 移动网络    : 否    Tor: 未知
 ------------------------------------------------------------
 欺诈分(Scamalytics): 0/100  (Low Risk)
 滥用置信度(AbuseIPDB): —（需 ABUSEIPDB_API_KEY）
+滥用举报(免key)      : StopForumSpam频率:0  blocklist.de攻击:0  IPsum:未命中
+权威滥用源  : Spamhaus:未命中
 ------------------------------------------------------------
 综合判定    : 65/100  🟠 中高风险
+置信度      : 地理:高  代理:高  VPN:低  托管:高  滥用:低
 ------------------------------------------------------------
-数据源 成功 : ipinfo.io, ip-api.com, ipwho.is, proxycheck.io, scamalytics.com
-数据源 跳过 : iphub.info(未配置 IPHUB_API_KEY，跳过), abuseipdb.com(未配置 ABUSEIPDB_API_KEY，跳过)
+平台适配度(启发式,非平台真实判定):
+  🔴 易被风控  社交媒体(X/FB/IG/TikTok)  代理, VPN
+  🔴 易被风控  AI工具(OpenAI/Claude/Gemini)  代理, VPN
+  🔴 易被风控  电商/支付(Amazon/PayPal)  代理, VPN
+  🔴 易被风控  流媒体(Netflix/Spotify)  代理, VPN
+  🔴 易被风控  注册/论坛/爬虫  代理, VPN
+------------------------------------------------------------
+使用建议(启发式,综合IP画像):
+  ⛔ 不建议  注册社媒/AI 账号     代理/VPN/Tor IP 极易被判异常、要求验证或封号
+  ⛔ 不建议  长期养号           机房/代理/VPN IP 不利于长期养号，易被清理
+  ⚠️ 谨慎  爬虫/数据采集        可用，但非机房 IP 做采集成本高/易触发
+  ⛔ 不建议  电商/支付          风控最严，机房/代理/滥用 IP 基本不可用
+  ⚠️ 谨慎  流媒体解锁          VPN 可能被封（Netflix 等），需实测
+------------------------------------------------------------
+数据源 成功 : ipinfo.io, ip-api.com, ipwho.is, proxycheck.io, scamalytics.com, stopforumspam.com, blocklist.de, IPsum(聚合黑名单), Spamhaus DNSBL, DB-IP
+数据源 跳过 : iphub.info(需人机验证), abuseipdb.com(需 key), VirusTotal(未配置 VIRUSTOTAL_API_KEY), MaxMind GeoLite2(未配置)
 ============================================================
 ```
 
@@ -159,7 +178,7 @@ $env:ABUSEIPDB_API_KEY="你的key"
 ## 命令行参数
 
 ```
-ipcheck check <IP...> [--file F] [--csv out.csv] [--json] [--brief] [--open] [--env] [--platforms] [--regions] [--only ...] [--gateway URL]
+ipcheck check <IP...> [--file F] [--csv out.csv] [--json] [--brief] [--open] [--env] [--platforms] [--regions] [--interval S] [--only ...] [--gateway URL]
 ipcheck open <IP> [--all] [--which abuseipdb,iphub,scamalytics,stopforumspam]
 ipcheck myip [--json]        # 出口 IP + 环境一致性
 ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only ...]
@@ -222,8 +241,6 @@ while True:
 
 > 说明：验证码是对方的风控。优先官方 API；自用/有权限场景下再考虑浏览器或打码，并控制频率。
 
-## 命令行参数
-
 ## 滥用举报记录：不止 AbuseIPDB（这些免 key）
 
 AbuseIPDB 前端对程序化访问会拦（返回 "Please Don't Scrape"），程序里只能走免费 key。但**滥用/举报类信号并非只有它**，工具已内置几个完全免 key 的渠道：
@@ -257,7 +274,7 @@ python scripts/ipcheck.py 8.8.8.8 --open        # 检测完顺带打开 abuseipd
 
 | 场景 | 做法 |
 |------|------|
-| 开源分发给任意人 | **免 key 即可用**（ipinfo/ip-api/ipwho.is/proxycheck/scamalytics 5 个源零 key），需要 iphub/abuseipdb 精度的人**各自申请自己的免费 key**（BYOK） |
+| 开源分发给任意人 | **免 key 即可用**（ipinfo/ip-api/ipwho.is/proxycheck/scamalytics/StopForumSpam/blocklist.de/IPsum/Spamhaus/DB-IP 等约 10 个源零 key），需要 iphub/abuseipdb 精度的人**各自申请自己的免费 key**（BYOK） |
 | 团队/多人共用一个出口检测 | 部署**一台网关**：key 只放服务端，客户端零 key，网关做缓存+限流保护额度 |
 
 ### 网关模式（团队共用一份 key 也不炸）
@@ -399,6 +416,7 @@ python scripts/ipcheck.py watch --egress --interval 30
 - 信号分：Proxy +30、VPN +35、Hosting +10、Tor +60、Mobile −5。
 - 综合风险分 = min(100, max(外部分, 信号分, 举报分))；等级 `<20` 干净、`20–49` 中低、`50–79` 中高、`≥80` 高。
 - 源间冲突（例如 ip-api 说 proxy、proxycheck 说 no）会在报告「备注」中说明，并按可信源优先级取值。
+- ⚠️ **以上权重是经验值，非校准概率**（见 `ipcheck.py` 顶部 `RISK_W_*` 常量）。综合分只用于排序/初筛，不代表真实风险概率。
 
 ## 作为 agent skill 使用
 

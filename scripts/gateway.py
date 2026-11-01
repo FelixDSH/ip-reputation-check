@@ -39,7 +39,8 @@ import sys
 import time
 import threading
 import ipaddress
-from collections import defaultdict, deque
+import hmac
+from collections import OrderedDict, defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -47,7 +48,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ipcheck  # noqa: E402
 
 _lock = threading.Lock()
-_cache = {}          # ip -> (expire_ts, agg_dict)
+_cache = OrderedDict()   # ip -> (expire_ts, agg_dict)，带 LRU 上限
+CACHE_MAX = 5000
 _rate = defaultdict(deque)  # client_ip -> deque[timestamps]
 RATE_WINDOW = 60.0
 
@@ -56,13 +58,23 @@ def _get_cached(cache_key, ttl):
     with _lock:
         item = _cache.get(cache_key)
         if item and item[0] > time.time():
+            _cache.move_to_end(cache_key)
             return item[1]
+        if item:
+            _cache.pop(cache_key, None)   # 过期清除
     return None
 
 
 def _set_cached(cache_key, agg, ttl):
     with _lock:
         _cache[cache_key] = (time.time() + ttl, agg)
+        _cache.move_to_end(cache_key)
+        # 清理过期 + 超上限淘汰最旧
+        now = time.time()
+        for k in [k for k, v in list(_cache.items()) if v[0] <= now]:
+            _cache.pop(k, None)
+        while len(_cache) > CACHE_MAX:
+            _cache.popitem(last=False)
 
 
 def _rate_ok(client_ip, limit):
@@ -84,6 +96,13 @@ class Handler(BaseHTTPRequestHandler):
     gateway_token = None
     ttl = 300
     rate = 60
+    trust_xff = False
+
+    def _token_eq(self, a, b):
+        try:
+            return hmac.compare_digest(str(a).encode("utf-8"), str(b).encode("utf-8"))
+        except Exception:
+            return False
 
     def _send(self, code, obj):
         data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -96,13 +115,20 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
+    def _client_key(self):
+        if self.trust_xff:
+            xff = self.headers.get("X-Forwarded-For", "")
+            if xff:
+                return xff.split(",")[0].strip()
+        return self.client_address[0]
+
     def _authorized(self, qs):
         if not self.gateway_token:
             return True
         auth = self.headers.get("Authorization", "")
-        if auth.startswith("Bearer ") and auth[7:].strip() == self.gateway_token:
+        if auth.startswith("Bearer ") and self._token_eq(auth[7:].strip(), self.gateway_token):
             return True
-        if qs.get("token", [None])[0] == self.gateway_token:
+        if self._token_eq(qs.get("token", [None])[0], self.gateway_token):
             return True
         return False
 
@@ -122,7 +148,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return self._send(400, {"error": "invalid ip"})
 
-        client_ip = self.client_address[0]
+        client_ip = self._client_key()
         if not _rate_ok(client_ip, self.rate):
             return self._send(429, {"error": "rate limit exceeded, retry later"})
 
@@ -153,6 +179,8 @@ def main():
     ap.add_argument("--token", default=os.environ.get("GATEWAY_TOKEN", "").strip(),
                     help="访问令牌（也可用环境变量 GATEWAY_TOKEN）")
     ap.add_argument("--only", default=None, help="固定使用这些源，逗号分隔")
+    ap.add_argument("--trust-proxy", action="store_true",
+                    help="信任反向代理的 X-Forwarded-For 作为限流键（反代后面开启）")
     args = ap.parse_args()
 
     if args.only:
@@ -161,6 +189,7 @@ def main():
     Handler.gateway_token = args.token or None
     Handler.ttl = args.ttl
     Handler.rate = args.rate
+    Handler.trust_xff = args.trust_proxy
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     keys = [k for k in ("IPHUB_API_KEY", "ABUSEIPDB_API_KEY", "IPINFO_TOKEN") if os.environ.get(k)]
