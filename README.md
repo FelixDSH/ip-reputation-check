@@ -22,6 +22,30 @@ python scripts/ipcheck.py 8.8.8.8 --brief    # 一行式简报
 | iphub：代理类型细分（住宅/机房/住宅代理） | 免费 `IPHUB_API_KEY`；或本机跑 `scripts/iphub_browser.py` 人工过验证 |
 | abuseipdb：滥用置信度 | 免费 `ABUSEIPDB_API_KEY`（**网页人工输入 IP 免 key 可看，但程序化访问被 Cloudflare 拦，只能走免费 API**） |
 
+## 环境要求（用户要装什么？）
+
+**基础检测的唯一硬性依赖是 Python 3.8+，而且不用 `pip` 装任何第三方库**（全部标准库）。不需要 Node、不需要浏览器。
+
+| 使用方式 | 用户需要什么 |
+|----------|--------------|
+| 作为 agent skill 调起（Claude Code / Codex / 通用 agents） | 只要运行 agent 的机器有 **Python 3.8+** |
+| 自己命令行运行 | **Python 3.8+**（无需 pip 装包） |
+| 给非技术用户 / 不想装 Python（Windows） | 用打包好的 **`dist/ipcheck.exe`** 单文件，双击或 `ipcheck.exe 8.8.8.8`，**完全不需要 Python** |
+| 完全零安装、多人共用 | 部署一台 `gateway.py` + 网页，用户只用浏览器 |
+
+> 只有当你额外使用 `--browser` / `iphub_browser.py`（用真实浏览器过 iphub 验证码）时，才需要 Playwright + 本机 Chrome；基础检测不需要。
+
+### 自己打 Windows 免安装 exe
+
+```powershell
+./build.ps1           # 产出 dist/ipcheck.exe（单文件，约 9MB）
+# 或手动：
+python -m pip install pyinstaller
+python -m PyInstaller --onefile --name ipcheck --distpath dist --workpath build --specpath build scripts/ipcheck.py
+```
+
+打出来后分发 `dist/ipcheck.exe` 即可，对方无需安装任何东西（Windows 直接运行）。
+
 ## 为什么做这个
 
 做跨境网络 / 代理 / 机场选型时，判断一个 IP 干不干净，通常要挨个打开

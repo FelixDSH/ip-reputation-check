@@ -5,6 +5,11 @@ __pycache__/
 .venv/
 venv/
 
+# PyInstaller 构建产物
+build/
+dist/
+*.spec
+
 # OS
 .DS_Store
 Thumbs.db

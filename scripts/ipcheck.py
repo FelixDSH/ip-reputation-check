@@ -51,6 +51,24 @@ import urllib.request
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/125.0 Safari/537.36")
 
+
+def _setup_console():
+    """Windows 控制台默认 GBK，遇到 emoji/中文会 UnicodeEncodeError。
+    启动时切 UTF-8 代码页并重配 stdout/stderr，保证任何终端都不崩。"""
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+            ctypes.windll.kernel32.SetConsoleCP(65001)
+        except Exception:
+            pass
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 DEFAULT_TIMEOUT = 12
 ALL_SOURCES = ["ipinfo", "ipapi", "ipwhois", "proxycheck", "scamalytics",
                "iphub", "abuseipdb"]
@@ -854,6 +872,7 @@ def build_parser():
 
 
 def main(argv=None):
+    _setup_console()
     argv = argv if argv is not None else sys.argv[1:]
     # 简化：允许直接 `ipcheck.py 8.8.8.8`（等价于 check）
     if argv and argv[0] not in ("check", "myip", "stability", "-h", "--help") and not argv[0].startswith("-"):
