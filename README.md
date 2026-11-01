@@ -49,6 +49,7 @@ tests/  (test_core.py, test_consistency.py)
 ## 自检 / 测试
 
 ```bash
+python scripts/selfcheck.py          # 一键自检：跑全部离线测试 + 在线冒烟（私有地址/JSON/最小真实查询）
 python tests/test_core.py            # 核心逻辑单测
 python tests/test_counterexamples.py # 之前审计反例的硬性回归（空数据/仅地理/仅RDAP/空字段/DNS临时失败/探针误判/JSON）
 python tests/test_fixtures.py        # 固定响应快照解析回归

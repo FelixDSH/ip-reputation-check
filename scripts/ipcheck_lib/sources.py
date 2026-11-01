@@ -86,6 +86,8 @@ def src_proxycheck(ip, timeout):
             if k != "status" and isinstance(v, dict):
                 node = v
                 break
+    if not isinstance(node, dict) or not node:
+        raise RuntimeError("proxycheck 返回空节点/无该 IP 结果")
     ptype = node.get("type")
     proxy = node.get("proxy")
     return {
@@ -223,7 +225,11 @@ def src_stopforumspam(ip, timeout):
     _, txt = http_get("https://api.stopforumspam.org/api?ip=%s&json" % ip,
                       timeout=timeout)
     d = _j(txt)
+    if not isinstance(d, dict) or d.get("success") not in (1, "1", True):
+        raise RuntimeError("SFP 返回失败/异常")
     node = d.get("ip") or {}
+    if not isinstance(node, dict) or not node:
+        raise RuntimeError("SFP 缺少 ip 字段")
     return {
         "frequency": _to_int(node.get("frequency")),
         "appears": _to_int(node.get("appears")),
@@ -231,11 +237,14 @@ def src_stopforumspam(ip, timeout):
         "confidence": _to_int(node.get("confidence")),
     }
 
+
 def src_blocklistde(ip, timeout):
     """免 key：blocklist.de 攻击举报数。"""
     _, txt = http_get("https://api.blocklist.de/api.php?ip=%s&format=json" % ip,
                       timeout=timeout)
     d = _j(txt)
+    if not isinstance(d, dict) or ("attacks" not in d and "reports" not in d):
+        raise RuntimeError("blocklist.de 响应缺少 attacks/reports")
     return {"attacks": _to_int(d.get("attacks")), "reports": _to_int(d.get("reports"))}
 
 _IPSUM_LOCK = None
@@ -394,8 +403,12 @@ def src_dbip(ip, timeout):
     """免 key：DB-IP 免费 GeoIP API（正规 IP 数据商，地理交叉校验）。"""
     _, txt = http_get("https://api.db-ip.com/v2/free/%s" % ip, timeout=timeout)
     d = _j(txt)
+    if not isinstance(d, dict):
+        raise RuntimeError("DB-IP 非对象响应")
     if d.get("error"):
         raise RuntimeError(str(d.get("error")))
+    if not d.get("countryCode") and not d.get("countryName"):
+        raise RuntimeError("DB-IP 缺少地理字段")
     return {
         "country": d.get("countryName"), "country_code": d.get("countryCode"),
         "region": d.get("stateProv"), "city": d.get("city"),

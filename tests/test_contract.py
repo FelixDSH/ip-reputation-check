@@ -190,5 +190,28 @@ class TestRdapBgpContract(unittest.TestCase):
         self.assertEqual(len(d["asns"]), 1)
 
 
+class TestJsonSourceContracts(unittest.TestCase):
+    def test_proxycheck_empty_node(self):
+        with mock.patch.object(S, "http_get", fake('{"status":"ok"}')):
+            with self.assertRaises(RuntimeError):
+                ic.src_proxycheck("1.2.3.4", 5)
+
+    def test_sfp_failure_and_missing_ip(self):
+        for body in ('{"success":0}', '{"success":1}'):
+            with mock.patch.object(S, "http_get", fake(body)):
+                with self.assertRaises(RuntimeError):
+                    ic.src_stopforumspam("1.2.3.4", 5)
+
+    def test_blocklistde_missing_fields(self):
+        with mock.patch.object(S, "http_get", fake('{"foo":1}')):
+            with self.assertRaises(RuntimeError):
+                ic.src_blocklistde("1.2.3.4", 5)
+
+    def test_dbip_missing_geo(self):
+        with mock.patch.object(S, "http_get", fake('{}')):
+            with self.assertRaises(RuntimeError):
+                ic.src_dbip("1.2.3.4", 5)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

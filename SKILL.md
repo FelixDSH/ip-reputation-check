@@ -88,6 +88,8 @@ python scripts/ipcheck.py probe --proxy http://host:port --expect-ip <IP>
 
 # 源健康检查（上游失效/限流时显式发现，自动跳过失败源）
 python scripts/ipcheck.py health
+# 改动后一键自检（离线测试 + 在线冒烟）
+python scripts/selfcheck.py
 
 # 面向用途的节点体检（需当前出口或 --proxy）：出口一致性/稳定性 + 场景实测 + 建议
 python scripts/ipcheck.py node --scenario browse        # browse/ai/stream/account/call/general
