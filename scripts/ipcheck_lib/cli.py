@@ -366,6 +366,8 @@ def _render_probe(d):
                                 "经代理" if d.get("mode") == "proxy" else "本机直连"))
     if d.get("guard"):
         print("⚠️ " + d["guard"])
+    if d.get("mode") == "proxy":
+        print("⚠️ 同一代理可能按域名分流；出口回显只代表回显服务的出口，不保证所有目标看到同一 IP。")
     print("站点              状态                            详情")
     for r in d.get("targets", []):
         print("  %-12s %-28s %s" % (r["site"], r["verdict"], r["detail"]))
@@ -420,6 +422,12 @@ def cmd_node(args):
     data = {"scenario": scen, "mode": "proxy" if proxy else "direct", "egress": egress,
             "egress_samples": egress_list, "stable": stable, "guard": guard,
             "targets": rows, "advice": advice}
+    if getattr(args, "save", False):
+        _save_history({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "version": VERSION,
+                       "node": proxy or "direct", "scenario": scen, "mode": data["mode"],
+                       "egress": egress, "stable": stable,
+                       "targets": [{"site": r["site"], "verdict": r["verdict"]} for r in rows],
+                       "advice": advice})
     if getattr(args, "json", False):
         print(json.dumps(data, ensure_ascii=False, indent=2))
         return 0
@@ -429,6 +437,8 @@ def cmd_node(args):
         "稳定" if stable else "有变化: " + (",".join(uniq) or "未知")))
     if guard:
         print("⚠️ %s —— 实测只归因于实际出口" % guard)
+    if proxy:
+        print("⚠️ 同一代理可能按域名分流到不同出口；出口回显只代表回显服务的出口，不保证所有目标看到同一 IP。")
     print("场景目标:")
     for r in rows:
         print("  %-12s %-28s %s" % (r["site"], r["verdict"], r["detail"]))
@@ -532,6 +542,76 @@ def cmd_compare(args):
     return 0
 
 
+def _history_path():
+    p = os.environ.get("IPCHECK_HISTORY", "").strip()
+    return p or os.path.join(os.path.expanduser("~"), ".ipcheck_history.jsonl")
+
+
+def _save_history(entry):
+    try:
+        with open(_history_path(), "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _load_history():
+    p = _history_path()
+    out = []
+    try:
+        with open(p, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        out.append(json.loads(line))
+                    except Exception:
+                        continue
+    except FileNotFoundError:
+        pass
+    return out
+
+
+def _diff_runs(prev, cur):
+    """比较两次复测：区分 算法版本变化 / 出口变化 / 目标表现变化。"""
+    ch = []
+    if prev.get("version") != cur.get("version"):
+        ch.append("算法版本 %s → %s（评分/逻辑可能变化，不代表 IP 本身变化）"
+                  % (prev.get("version"), cur.get("version")))
+    if prev.get("egress") != cur.get("egress"):
+        ch.append("出口 %s → %s（节点可能换了出口）" % (prev.get("egress"), cur.get("egress")))
+    pt = {t.get("site"): t.get("verdict") for t in prev.get("targets", [])}
+    ct = {t.get("site"): t.get("verdict") for t in cur.get("targets", [])}
+    for s in sorted(set(pt) | set(ct)):
+        if pt.get(s) != ct.get(s):
+            ch.append("%s: %s → %s（目标表现变化）" % (s, pt.get(s), ct.get(s)))
+    return ch or ["无显著变化"]
+
+
+def cmd_history(args):
+    entries = _load_history()
+    if args.node:
+        entries = [e for e in entries if e.get("node") == args.node]
+    if args.scenario:
+        entries = [e for e in entries if e.get("scenario") == args.scenario]
+    last = entries[-max(1, args.last):]
+    if getattr(args, "json", False):
+        print(json.dumps(last, ensure_ascii=False, indent=2))
+        return 0
+    if not last:
+        print("无历史记录（用 `node --save` 存档）")
+        return 0
+    print("历史复测（最近 %d 条）:" % len(last))
+    for e in last:
+        print("  %s  v%s  出口=%s  场景=%s  稳定=%s" % (
+            e.get("ts"), e.get("version"), e.get("egress"), e.get("scenario"), e.get("stable")))
+    if len(last) >= 2:
+        print("最近两次差异:")
+        for line in _diff_runs(last[-2], last[-1]):
+            print("  - " + line)
+    return 0
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="ipcheck",
@@ -622,6 +702,7 @@ def build_parser():
     pn.add_argument("--interval", type=int, default=2, help="采样间隔秒")
     pn.add_argument("--timeout", type=float, default=10)
     pn.add_argument("--json", action="store_true")
+    pn.add_argument("--save", action="store_true", help="把本次结果存入本地历史（供 history 复测对比）")
     pn.set_defaults(func=cmd_node)
 
     pcmp = sub.add_parser("compare", help="多节点同条件对比（出口稳定/地区/挑战/延迟），给出推荐")
@@ -632,6 +713,13 @@ def build_parser():
     pcmp.add_argument("--timeout", type=float, default=10)
     pcmp.add_argument("--json", action="store_true")
     pcmp.set_defaults(func=cmd_compare)
+
+    ph = sub.add_parser("history", help="历史复测：查看存档并对比(节点变/算法变/目标变)")
+    ph.add_argument("--node", default=None, help="只看某节点(代理或 direct)")
+    ph.add_argument("--scenario", default=None, help="只看某场景")
+    ph.add_argument("--last", type=int, default=5, help="看最近 N 条")
+    ph.add_argument("--json", action="store_true")
+    ph.set_defaults(func=cmd_history)
 
     ph = sub.add_parser("health", help="源健康检查：逐源探测可用性/延迟（上游失效显式降级）")
     ph.add_argument("--ip", default="8.8.8.8", help="探针 IP")
@@ -644,8 +732,8 @@ def main(argv=None):
     _setup_console()
     argv = argv if argv is not None else sys.argv[1:]
     # 简化：允许 `ipcheck.py 8.8.8.8` 或 `ipcheck.py --file x.txt`（等价于 check）
-    if argv and argv[0] not in ("check", "myip", "stability", "open", "watch", "probe", "node", "compare", "health",
-                                "-h", "--help", "--version", "-V"):
+    if argv and argv[0] not in ("check", "myip", "stability", "open", "watch", "probe", "node",
+                                "compare", "history", "health", "-h", "--help", "--version", "-V"):
         argv = ["check"] + argv
     p = build_parser()
     if not argv:

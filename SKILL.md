@@ -94,6 +94,9 @@ python scripts/ipcheck.py node --scenario browse        # browse/ai/stream/accou
 python scripts/ipcheck.py node --scenario ai --proxy http://host:port --expect-ip <IP>
 # 多节点对比（同场景，给推荐）
 python scripts/ipcheck.py compare --nodes "http://p1,http://p2" --scenario ai
+# 历史复测（node --save 存档；区分 节点变/算法变/目标变）
+python scripts/ipcheck.py node --scenario ai --save
+python scripts/ipcheck.py history --node direct --scenario ai
 
 # 看当前出口 IP
 python scripts/ipcheck.py myip

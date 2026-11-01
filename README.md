@@ -210,6 +210,7 @@ ipcheck open <IP> [--all] [--which abuseipdb,iphub,scamalytics,stopforumspam]
 ipcheck probe [--proxy URL] [--expect-ip IP] [--only google,openai,x,...] [--timeout 10] [--json]
 ipcheck node [--proxy URL] [--expect-ip IP] [--scenario browse|ai|stream|account|call|general] [--samples 3] [--json]
 ipcheck compare --nodes "http://p1,http://p2" [--scenario ai] [--json]   # 多节点同条件对比
+ipcheck history [--node X] [--scenario ai] [--last 5] [--json]           # 历史复测差异（节点/算法/目标）
 ipcheck health [--ip IP] [--only src,...]        # 源健康检查（可用性/延迟）
 ipcheck myip [--json]        # 出口 IP + 环境一致性
 ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only ...]
@@ -516,6 +517,15 @@ python scripts/ipcheck.py node --scenario ai --proxy http://host:port --expect-i
 python scripts/ipcheck.py compare --nodes "http://p1,http://p2,direct" --scenario ai
 ```
 输出：每个节点的 出口/稳定/地区/挑战/失败/平均TLS + 结论，最后给"推荐"。短时对比，不代表长期稳定，也不预测封号。
+
+**历史复测**（区分"节点变了 / 算法变了 / 目标异常"）：
+```bash
+python scripts/ipcheck.py node --scenario ai --save     # 存一条历史
+python scripts/ipcheck.py history --node direct --scenario ai
+```
+差异会明确区分：算法版本变化（不代表 IP 变）、出口变化（节点换了出口）、目标表现变化（某站点结果变了）。
+
+> **分流限制**：同一代理可能按域名分流到不同出口；出口回显只代表回显服务的出口，不保证所有目标看到同一 IP（`node/probe` 在代理模式下会提示）。
 
 输出示例：
 ```

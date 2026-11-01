@@ -301,6 +301,37 @@ class TestProbe(unittest.TestCase):
         agg = ic.aggregate("1.2.3.4", [])
         self.assertIn("generated_at", agg)
 
+    def test_diff_runs(self):
+        import ipcheck_lib.cli as C
+        prev = {"version": "1.0.0", "egress": "1.1.1.1", "targets": [{"site": "x", "verdict": "ok"}]}
+        cur = {"version": "1.0.1", "egress": "2.2.2.2", "targets": [{"site": "x", "verdict": "人机验证"}]}
+        txt = " ".join(C._diff_runs(prev, cur))
+        self.assertIn("算法版本", txt)
+        self.assertIn("出口", txt)
+        self.assertIn("目标表现", txt)
+        self.assertEqual(C._diff_runs(prev, prev), ["无显著变化"])
+
+    def test_history_save_load(self):
+        import os
+        import tempfile
+        import ipcheck_lib.cli as C
+        d = tempfile.mkdtemp()
+        old = os.environ.get("IPCHECK_HISTORY")
+        os.environ["IPCHECK_HISTORY"] = os.path.join(d, "h.jsonl")
+        try:
+            C._save_history({"ts": "t1", "version": "1", "node": "direct", "scenario": "ai",
+                             "egress": "1.1.1.1", "stable": True, "targets": []})
+            C._save_history({"ts": "t2", "version": "1", "node": "direct", "scenario": "ai",
+                             "egress": "2.2.2.2", "stable": True, "targets": []})
+            h = C._load_history()
+            self.assertEqual(len(h), 2)
+            self.assertEqual(h[-1]["egress"], "2.2.2.2")
+        finally:
+            if old is None:
+                os.environ.pop("IPCHECK_HISTORY", None)
+            else:
+                os.environ["IPCHECK_HISTORY"] = old
+
 
 class TestP0Guards(unittest.TestCase):
     def test_private_ip_skips_public_query(self):
