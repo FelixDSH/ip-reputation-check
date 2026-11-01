@@ -469,16 +469,30 @@ def src_maxmind(ip, timeout):
     }
 
 def src_rdap(ip, timeout):
-    """免 key：RIR RDAP 登记信息（地址资源登记组织/范围/状态）。回答“分配给谁”，非“现在谁在用”。"""
+    """免 key：RIR RDAP 登记信息。契约：空/错误/范围不覆盖/无 handle 均报错。"""
     _, txt = http_get("https://rdap.org/ip/%s" % ip,
                       headers={"Accept": "application/rdap+json"}, timeout=max(timeout, 15))
     d = _j(txt)
+    if not isinstance(d, dict) or not d:
+        raise RuntimeError("RDAP 空响应")
     if d.get("errorCode"):
         raise RuntimeError(d.get("title") or "RDAP 查询失败")
+    start, end = d.get("startAddress"), d.get("endAddress")
+    if not start or not end:
+        raise RuntimeError("RDAP 缺地址范围，无法确认归属")
+    from ipaddress import ip_address
+    try:
+        s, e, q = ip_address(start), ip_address(end), ip_address(ip)
+        if s.version != q.version or not (s <= q <= e):
+            raise RuntimeError("RDAP 范围不覆盖目标 IP（%s-%s 不含 %s）" % (start, end, ip))
+    except ValueError:
+        raise RuntimeError("RDAP 地址范围非法")
+    if not d.get("handle") and not d.get("name"):
+        raise RuntimeError("RDAP 无 handle/name，无有效数据")
     org = None
-    for e in (d.get("entities") or []):
-        if "registrant" in (e.get("roles") or []):
-            vc = e.get("vcardArray") or []
+    for ent in (d.get("entities") or []):
+        if "registrant" in (ent.get("roles") or []):
+            vc = ent.get("vcardArray") or []
             for item in (vc[1] if len(vc) > 1 else []):
                 if item and item[0] == "fn":
                     org = item[3]
@@ -486,19 +500,36 @@ def src_rdap(ip, timeout):
             if org:
                 break
     return {"handle": d.get("handle"), "name": d.get("name"),
-            "start": d.get("startAddress"), "end": d.get("endAddress"),
-            "country": d.get("country"), "status": d.get("status"),
-            "type": d.get("type"), "org": org}
+            "start": start, "end": end, "country": d.get("country"),
+            "status": d.get("status"), "type": d.get("type"), "org": org,
+            "range_covers": True}
 
 
 def src_ripe_bgp(ip, timeout):
-    """免 key：RIPEstat BGP 路由归属（当前是否宣告、覆盖前缀、起源 ASN）。回答“路由归属”，非“安全”。"""
+    """免 key：RIPEstat BGP 路由归属。契约：状态异常/前缀不覆盖/announced 无 ASN 均报错；保留多起源 ASN。"""
     _, txt = http_get("https://stat.ripe.net/data/prefix-overview/data.json?resource=%s" % ip,
                       timeout=timeout)
-    d = _j(txt).get("data", {}) or {}
+    raw = _j(txt)
+    if not isinstance(raw, dict):
+        raise RuntimeError("RIPEstat 空/非对象响应")
+    status = raw.get("status") or raw.get("data_call_status")
+    if status and status not in ("ok", "supported"):
+        raise RuntimeError("RIPEstat 状态异常:%s" % status)
+    d = raw.get("data") or {}
+    prefix = d.get("resource")
     asns = d.get("asns") or []
+    if not prefix:
+        raise RuntimeError("RIPEstat 缺前缀")
+    from ipaddress import ip_address, ip_network
+    try:
+        if ip_address(ip) not in ip_network(prefix, strict=False):
+            raise RuntimeError("BGP 前缀不覆盖目标 IP（%s 不含 %s）" % (prefix, ip))
+    except ValueError:
+        raise RuntimeError("RIPEstat 前缀非法")
+    if d.get("announced") and not asns:
+        raise RuntimeError("RIPEstat announced 但无起源 ASN")
     first = asns[0] if asns else {}
-    return {"announced": d.get("announced"), "prefix": d.get("resource"),
+    return {"announced": d.get("announced"), "prefix": prefix,
             "asns": [{"asn": a.get("asn"), "holder": a.get("holder")} for a in asns],
             "origin_asn": first.get("asn"), "origin_holder": first.get("holder")}
 

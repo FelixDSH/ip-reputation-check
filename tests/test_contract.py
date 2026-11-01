@@ -25,10 +25,16 @@ import ipcheck_lib.sources as S  # noqa: E402
 import ipcheck_lib.probe as P  # noqa: E402
 
 FIX = os.path.join(ROOT, "scripts", "ipcheck_lib", "fixtures", "abnormal")
+FIX_ROOT = os.path.join(ROOT, "scripts", "ipcheck_lib", "fixtures")
 
 
 def load(name):
     with open(os.path.join(FIX, name), encoding="utf-8") as f:
+        return f.read()
+
+
+def load_root(name):
+    with open(os.path.join(FIX_ROOT, name), encoding="utf-8") as f:
         return f.read()
 
 
@@ -155,6 +161,33 @@ class TestProbeSoftblock(unittest.TestCase):
 
     def test_200_challenge_is_human_verification(self):
         self.assertIn("人机", P.classify(200, "Just a moment... checking your browser"))
+
+
+class TestRdapBgpContract(unittest.TestCase):
+    def test_rdap_error_empty_norange_wrongrange(self):
+        for fn in ("rdap_error.json", "rdap_empty.json", "rdap_no_range.json", "rdap_wrong_range.json"):
+            with mock.patch.object(S, "http_get", fake(load(fn))):
+                with self.assertRaises(RuntimeError):
+                    ic.src_rdap("8.8.8.8", 5)
+
+    def test_rdap_valid(self):
+        with mock.patch.object(S, "http_get", fake(load_root("rdap.json"))):
+            d = ic.src_rdap("8.8.8.8", 5)
+        self.assertEqual(d["handle"], "NET-8-8-8-0-2")
+        self.assertTrue(d["range_covers"])
+
+    def test_bgp_error_noasn_wrongprefix(self):
+        for fn in ("bgp_error.json", "bgp_no_asn.json", "bgp_wrong_prefix.json"):
+            with mock.patch.object(S, "http_get", fake(load(fn))):
+                with self.assertRaises(RuntimeError):
+                    ic.src_ripe_bgp("8.8.8.8", 5)
+
+    def test_bgp_valid_keeps_origin(self):
+        with mock.patch.object(S, "http_get", fake(load_root("ripe_bgp.json"))):
+            d = ic.src_ripe_bgp("8.8.8.8", 5)
+        self.assertTrue(d["announced"])
+        self.assertEqual(d["origin_asn"], 15169)
+        self.assertEqual(len(d["asns"]), 1)
 
 
 if __name__ == "__main__":
