@@ -82,6 +82,10 @@ python scripts/ipcheck.py --file ips.txt --csv result.csv
 python scripts/ipcheck.py watch 8.8.8.8 --interval 60
 python scripts/ipcheck.py watch --egress --interval 30
 
+# 实测（可选）：从当前出口或 --proxy 出口真实访问站点，只读
+python scripts/ipcheck.py probe --only google,openai,x,netflix
+python scripts/ipcheck.py probe --proxy http://host:port --expect-ip <IP>
+
 # 看当前出口 IP
 python scripts/ipcheck.py myip
 
@@ -133,6 +137,7 @@ python scripts/ipcheck.py check <IP> --gateway http://GATEWAY:8787
 - **滥用举报不止 AbuseIPDB**：AbuseIPDB 需免费 key；免 key 的 StopForumSpam / blocklist.de / IPsum / Spamhaus DNSBL 已自动包含并计入风险。想直接看 AbuseIPDB 网页用 `python scripts/ipcheck.py open <IP>`（自动带入 IP）。
 - **不是权威**：本工具是多源聚合初筛，按源等级（A 权威/B 专业/C 社区）和一致度给置信度。汇报时要如实说明置信度，不要把它当风控定论。
 - **数据不足/异常不判安全**：所有源失败→"无法判定"；空响应/缺字段算该源失败；Spamhaus 遇 Fake-IP 判"不可信"；PBL 策略名单不算恶意；私有/保留地址本地跳过。汇报时不要把"没查到"当成"干净"。
+- **推测 vs 实测**：默认只做"规则推算/查询汇总"，**不是实测**。只有 `probe` 或 `check --probe` 才是真实访问（且需从对应出口/代理发请求）。汇报必须分开标注："站点适配度=规则推算"、"实测=确实访问过"。HTTP 200≠可用、403≠封号、401 可能只是没带 key。
 - **Spamhaus 遇 Fake-IP**：若本地代理/Clash 等把 DNS 劫持成 Fake-IP（如返回 198.18.x.x），Spamhaus DNSBL 结果不可信，工具会报「DNS 返回异常…不可信」并跳过——此时不能当成"未上榜/干净"。
 - **平台适配度是启发式**：🟢/🟡/🔴 只是「机房/VPN/代理/滥用/AI地区限制」等信号的加权初筛，不代表平台真实判定；各平台策略随时变。
 

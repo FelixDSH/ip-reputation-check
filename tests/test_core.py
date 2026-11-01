@@ -243,6 +243,19 @@ class TestP1Evidence(unittest.TestCase):
         self.assertTrue(c["oppose"])
 
 
+class TestProbe(unittest.TestCase):
+    def test_classify(self):
+        import ipcheck_lib.probe as P
+        self.assertEqual(P.classify(204, ""), "连接成功(未验证登录/功能)")
+        self.assertEqual(P.classify(200, "ok"), "连接成功(未验证登录/功能)")
+        self.assertIn("地区", P.classify(403, "Country, region, or territory not supported"))
+        self.assertIn("人机", P.classify(403, "Just a moment... checking your browser"))
+        self.assertIn("原因不明", P.classify(403, "forbidden"))
+        self.assertIn("登录", P.classify(401, ""))
+        self.assertIn("连接失败", P.classify(None, ""))
+        self.assertIn("地区", P.classify(451, ""))
+
+
 class TestP0Guards(unittest.TestCase):
     def test_private_ip_skips_public_query(self):
         agg = ic.check_ip("10.0.0.1")

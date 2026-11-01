@@ -201,8 +201,9 @@ $env:ABUSEIPDB_API_KEY="你的key"
 ## 命令行参数
 
 ```
-ipcheck check <IP...> [--file F] [--csv out.csv] [--json] [--brief] [--open] [--env] [--no-platforms] [--regions] [--interval S] [--only ...] [--gateway URL]
+ipcheck check <IP...> [--file F] [--csv out.csv] [--json] [--brief] [--open] [--env] [--no-platforms] [--regions] [--probe] [--proxy URL] [--interval S] [--only ...] [--gateway URL]
 ipcheck open <IP> [--all] [--which abuseipdb,iphub,scamalytics,stopforumspam]
+ipcheck probe [--proxy URL] [--expect-ip IP] [--only google,openai,x,...] [--timeout 10]
 ipcheck myip [--json]        # 出口 IP + 环境一致性
 ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only ...]
 ipcheck watch [IP...] [--egress] [--interval 60] [--rounds N]   # 监控变化/漂移
@@ -468,6 +469,26 @@ python scripts/ipcheck.py watch --egress --interval 30
 - **RDAP ≠ BGP ≠ 实际使用者**：登记归属（谁登记）、路由归属（谁宣告）、实际使用（谁在用）三者不一致不一定异常。
 - **Tor 官方名单**优先于社区标记；未命中≠不是任何代理。
 - 证据强度是"来源等级 × 一致度"，不是统计置信区间。
+
+## 实测模式（P2，可选）
+
+默认**只做推测、不做实测**。要实测某 IP 的"能不能用"，必须**从该 IP 的出口**发请求（本工具不自带代理，你用 `--proxy` 指定）：
+
+```bash
+# 直接测当前出口能访问哪些站点（只读，不登录）
+python scripts/ipcheck.py probe --only google,openai,x,netflix
+
+# 经指定代理出口测，并校验出口是否等于目标 IP
+python scripts/ipcheck.py probe --proxy http://user:pass@host:port --expect-ip 1.2.3.4
+
+# 检测某 IP 时顺带实测（会用 --proxy 出口；出口≠该 IP 会告警，不把结论归因给它）
+python scripts/ipcheck.py 1.2.3.4 --probe --proxy http://host:port
+```
+
+实测状态（严格区分，不把推测当实测）：
+`连接成功(未验证登录/功能)` / `明确地区限制` / `人机验证(挑战页,≠封号)` / `需登录/鉴权` / `访问拒绝(原因不明,不能断定封IP)` / `限流` / `连接失败`。
+
+> **HTTP 200 ≠ 功能可用；403 ≠ 封号；401 可能只是没带 key。** 默认不登录/不注册/不付款、只读、少量请求。出口与目标不一致时，实测结论只代表实际出口那个 IP。
 
 ## 风险判定模型
 

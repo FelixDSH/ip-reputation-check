@@ -23,6 +23,7 @@ from ipcheck_lib.render import *  # noqa: F401,F403
 from ipcheck_lib.env import *  # noqa: F401,F403
 from ipcheck_lib.csvio import *  # noqa: F401,F403
 from ipcheck_lib import sources as _sources  # noqa: F401
+from ipcheck_lib import probe as _probe  # noqa: F401
 
 def _setup_console():
     """Windows 控制台默认 GBK，遇到 emoji/中文会 UnicodeEncodeError。
@@ -256,6 +257,10 @@ def cmd_check(args):
                 except Exception:
                     pass
             print("已打开 abuseipdb / iphub 网页（IP 已带入，可人工核验）")
+        if getattr(args, "probe", False):
+            print()
+            _print_probe(getattr(args, "proxy", None) or os.environ.get("IPCHECK_PROXY", "").strip() or None,
+                         ip, None, args.timeout)
     if getattr(args, "csv", None):
         try:
             write_csv(csv_rows, args.csv)
@@ -332,6 +337,25 @@ def cmd_watch(args):
         print("\n监控已停止")
     return 0
 
+def _print_probe(proxy, expect_ip, only, timeout):
+    egress = _probe.egress_via(proxy, timeout) if proxy else get_egress_ip(timeout)[0]
+    print("实测出口 IP: %s%s" % (egress or "未知", "（经代理）" if proxy else "（本机直连）"))
+    if expect_ip and egress and expect_ip != egress:
+        print("⚠️ 出口(%s) ≠ 目标(%s)：这是 %s 的实测结果，不能归因到 %s"
+              % (egress, expect_ip, egress, expect_ip))
+    rows = _probe.run_probe(proxy=proxy, only=only, timeout=timeout)
+    print("站点              状态                            详情")
+    for r in rows:
+        print("  %-12s %-28s %s" % (r["site"], r["verdict"], r["detail"]))
+    print("说明: 200≠功能可用；403≠封号；401 可能只是没带 key；未登录/未付费，仅只读探测。")
+
+
+def cmd_probe(args):
+    only = [x.strip() for x in args.only.split(",") if x.strip()] if args.only else None
+    _print_probe(args.proxy, args.expect_ip, only, args.timeout)
+    return 0
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="ipcheck",
@@ -361,6 +385,8 @@ def build_parser():
     pc.add_argument("--platforms", action="store_true", help="(兼容保留) 站点适配度现已默认显示")
     pc.add_argument("--no-platforms", action="store_true", help="不显示站点适配度")
     pc.add_argument("--regions", action="store_true", help="追加各服务在 IP 所在国的可用性(OpenAI/Netflix/PayPal 等)")
+    pc.add_argument("--probe", action="store_true", help="追加实测：从出口(或 --proxy)真实访问各站点(只读)")
+    pc.add_argument("--proxy", default=None, help="实测经此 HTTP 代理出口，如 http://host:port")
     pc.add_argument("--gateway", default=None,
                     help="走自建网关（也可用环境变量 IPCHECK_GATEWAY），客户端无需任何源 key")
     pc.add_argument("--interval", type=float, default=0.0,
@@ -401,13 +427,21 @@ def build_parser():
     pw.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     pw.add_argument("--no-color", action="store_true")
     pw.set_defaults(func=cmd_watch)
+
+    pp = sub.add_parser("probe", help="实测：从出口/代理只读访问各站点，给出分层可用性状态")
+    pp.add_argument("--proxy", default=None, help="经此 HTTP 代理出口，如 http://host:port")
+    pp.add_argument("--expect-ip", default=None, help="期望出口 IP；若实际出口不符会告警")
+    pp.add_argument("--only", default=None, help="只测这些站点，逗号分隔: " + ",".join(_probe.TARGETS))
+    pp.add_argument("--timeout", type=float, default=10)
+    pp.add_argument("--no-color", action="store_true")
+    pp.set_defaults(func=cmd_probe)
     return p
 
 def main(argv=None):
     _setup_console()
     argv = argv if argv is not None else sys.argv[1:]
     # 简化：允许 `ipcheck.py 8.8.8.8` 或 `ipcheck.py --file x.txt`（等价于 check）
-    if argv and argv[0] not in ("check", "myip", "stability", "open", "watch",
+    if argv and argv[0] not in ("check", "myip", "stability", "open", "watch", "probe",
                                 "-h", "--help", "--version", "-V"):
         argv = ["check"] + argv
     p = build_parser()
