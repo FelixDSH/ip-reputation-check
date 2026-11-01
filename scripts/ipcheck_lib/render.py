@@ -152,7 +152,8 @@ def render_report(agg, color=True):
     if auth:
         lines.append("权威滥用源  : " + "  ".join(auth))
     lines.append("-" * 60)
-    verdict = "%d/100  %s" % (vd["risk_score"], vd["label"])
+    rs = vd.get("risk_score")
+    verdict = ("%d/100  %s" % (rs, vd["label"])) if rs is not None else vd["label"]
     lines.append("综合判定    : " + _color_level(c, vd["risk_level"], verdict))
     conf = agg.get("confidence") or {}
 
@@ -191,7 +192,9 @@ def render_brief(agg):
     loc = ",".join([x for x in [geo.get("country"), geo.get("city")] if x]) or "-"
     abuse = sc.get("abuse_confidence")
     fs = sc.get("fraud_score")
-    flag = {"clean": "🟢", "low": "🟡", "medium": "🟠", "high": "🔴"}.get(vd["risk_level"], "")
+    flag = {"clean": "🟢", "low": "🟡", "medium": "🟠", "high": "🔴", "unknown": "⚪"}.get(vd["risk_level"], "")
+    rs = vd.get("risk_score")
+    risk_txt = ("%s %d/100" % (flag, rs)) if rs is not None else (flag + " 数据不足/无法判定")
     parts = [
         agg["ip"], loc, (net.get("asn_org") or "-"),
         "type:%s" % (agg.get("ip_type") or "-"),
@@ -199,7 +202,7 @@ def render_brief(agg):
         "fraud:%s" % (fs if fs is not None else "-"),
         "abuse:%s" % ((str(abuse) + "%") if abuse is not None else "-"),
         "ipsum:%s" % ("命中" if sc.get("ipsum_listed") else ("未" if sc.get("ipsum_listed") is not None else "-")),
-        "%s %d/100" % (flag, vd["risk_score"]),
+        risk_txt,
     ]
     return " | ".join(parts)
 

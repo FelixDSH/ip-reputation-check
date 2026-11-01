@@ -244,6 +244,7 @@ def compute_platforms(flags, geo, net, scores, ip_type=""):
 
 def aggregate(ip, results):
     get = {r["source"]: r for r in results}
+    ok_count = sum(1 for r in results if r.get("ok"))
     srcs = {name: (get[name]["data"] if get.get(name) and get[name]["ok"] else {})
             for name in _sources.SOURCES}
 
@@ -361,6 +362,17 @@ def aggregate(ip, results):
     decisions = compute_decisions(ip_type, flags_view, scores_view, geo)
     platforms = compute_platforms(flags_view, geo, net_view, scores_view, ip_type)
 
+    # 数据不足：没有任何源成功 → 结论必须是“无法判定”，绝不能当“干净住宅”
+    if ok_count == 0:
+        ip_type = "未知（数据不足）"
+        risk_score, risk_level = None, "unknown"
+        platform_fit, platforms, decisions = [], [], []
+        confidence["abuse"] = {"level": "unknown", "note": "无数据，无法判定"}
+        confidence["geo"] = {"level": "unknown", "n": 0}
+        confidence["proxy"] = {"level": "unknown", "n": 0}
+        confidence["vpn"] = {"level": "unknown", "n": 0}
+        confidence["hosting"] = {"level": "unknown", "n": 0}
+
     return {
         "ip": ip,
         "ip_type": ip_type,
@@ -428,14 +440,15 @@ def classify_ip_type(flags, net, asn_org):
     return "住宅/普通ISP（推断）"
 
 def compute_risk(fraud, abuse, proxy, vpn, hosting, tor, mobile, free_pts=0):
-    """经验加权评分（权重见 RISK_W_*，非校准概率）。取外部信号与本地信号的最大值。"""
+    """经验加权「规则分」（权重见 RISK_W_*，非校准概率、非概率百分比）。
+    去相关：已有 代理/VPN 时不再叠加 hosting（三者常来自同一来源，避免重复计分）。"""
     ext = max([x for x in (fraud, abuse) if x is not None], default=0)
     pts = 0
     if proxy:
         pts += RISK_W_PROXY
     if vpn:
         pts += RISK_W_VPN
-    if hosting:
+    if hosting and not (proxy or vpn):
         pts += RISK_W_HOSTING
     if tor:
         pts += RISK_W_TOR
@@ -459,6 +472,7 @@ def risk_label(level):
         "low": "\U0001F7E1 中低风险",
         "medium": "\U0001F7E0 中高风险",
         "high": "\U0001F534 高风险",
+        "unknown": "\u26AA 数据不足 / 无法判定",
     }.get(level, level)
 
 def check_ip(ip, only=None, timeout=DEFAULT_TIMEOUT):

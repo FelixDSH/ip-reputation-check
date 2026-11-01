@@ -144,6 +144,10 @@ class TestScoring(unittest.TestCase):
         self.assertEqual(ic.compute_risk(0, None, False, False, False, True, False)[0], 60)  # tor
         self.assertEqual(ic.compute_risk(85, None, False, False, False, False, False)[1], "high")
 
+    def test_risk_dedup_correlated_hosting(self):
+        # 代理+VPN 已计分时，hosting 不再叠加（避免 30+35+10=75 的重复计分）
+        self.assertEqual(ic.compute_risk(0, None, True, True, True, False, False)[0], 65)
+
     def test_conf_bool_tie_uses_priority(self):
         c = ic._conf_bool([("proxycheck", False), ("ipapi", True)])  # 平票取优先源
         self.assertFalse(c["value"])
@@ -164,6 +168,14 @@ class TestScoring(unittest.TestCase):
 
 
 class TestAggregateHelpers(unittest.TestCase):
+    def test_empty_results_is_insufficient_not_clean(self):
+        # 无任何源成功 → 必须“无法判定”，不能判成干净住宅
+        agg = ic.aggregate("1.2.3.4", [])
+        self.assertEqual(agg["verdict"]["risk_level"], "unknown")
+        self.assertIsNone(agg["verdict"]["risk_score"])
+        self.assertIn("数据不足", agg["ip_type"])
+        self.assertEqual(agg["decisions"], [])
+
     def test_vote_records_conflict(self):
         conflicts = []
         val = ic._vote(conflicts, "Proxy", [("proxycheck", False), ("ipapi", True)])
