@@ -737,7 +737,7 @@ def _platform_level(score):
     return "high", "🔴 易被风控"
 
 
-def _platform_fit(flags, geo, net, scores):
+def _platform_fit(flags, geo, net, scores, ip_type=""):
     """基于 IP 画像给各平台类别的「可用度风险」启发式评分。"""
     abuse_hit = bool(scores.get("spamhaus_listed")) or \
         (scores.get("vt_malicious") or 0) > 0 or \
@@ -766,10 +766,26 @@ def _platform_fit(flags, geo, net, scores):
         score = max(0, min(100, score))
         lvl, label = _platform_level(score)
         if not reasons:
-            reasons.append("住宅/普通网络，风险低")
+            reasons.append(_type_reason(ip_type))
         out.append({"category": cat, "score": score, "level": lvl,
                     "label": label, "reason": ", ".join(reasons)})
     return out
+
+
+def _type_reason(ip_type):
+    """无风险信号时，按 IP 类型给出中性描述，避免把企业/教育网误写成‘住宅’。"""
+    t = ip_type or ""
+    if "住宅" in t:
+        return "住宅/普通网络，风险低"
+    if "移动" in t:
+        return "移动网络(较优)"
+    if "企业" in t:
+        return "企业网络(相对可信)"
+    if "教育" in t:
+        return "教育网(相对可信)"
+    if "政府" in t:
+        return "政府/机构网络"
+    return "普通网络(类型未细分)"
 
 
 DECISION_LABEL = {"ok": "✅ 推荐", "warn": "⚠️ 谨慎", "no": "⛔ 不建议"}
@@ -790,6 +806,7 @@ def compute_decisions(ip_type, flags, scores, geo):
     tor = "Tor" in t
     mobile = "移动" in t
     residential = ("住宅" in t) and not (vpn or proxy or tor)
+    org_net = any(k in t for k in ("企业", "教育", "政府"))
     abuse = _abuse_hit(scores)
     anon = vpn or proxy or tor
     out = []
@@ -805,14 +822,18 @@ def compute_decisions(ip_type, flags, scores, geo):
     elif residential or mobile:
         add("注册社媒/AI 账号", "warn" if abuse else "ok",
             "住宅/移动 IP 但存在滥用记录" if abuse else "住宅/移动 IP，较像真人，成功率较高")
+    elif org_net:
+        add("注册社媒/AI 账号", "warn", "企业/机构网络：注册一般可用，但共享出口或异常行为仍可能触发验证")
     else:
-        add("注册社媒/AI 账号", "warn", "类型不确定，建议先用浏览器环境实测")
+        add("注册社媒/AI 账号", "warn", "网络类型未细分，建议先用浏览器环境实测")
 
     # 长期养号
     if (residential or mobile) and not abuse:
         add("长期养号", "ok", "住宅/移动 IP + 无滥用，适合养号（务必保持出口稳定）")
     elif datacenter or anon:
         add("长期养号", "no", "机房/代理/VPN IP 不利于长期养号，易被清理")
+    elif org_net:
+        add("长期养号", "warn", "企业/机构网络：独享出口可养号，共享出口风险高")
     else:
         add("长期养号", "warn", "存在风险信号，养号需谨慎")
 
@@ -822,27 +843,29 @@ def compute_decisions(ip_type, flags, scores, geo):
     elif abuse:
         add("爬虫/数据采集", "warn", "有滥用记录，部分站点会直接封")
     else:
-        add("爬虫/数据采集", "warn", "可用，但住宅 IP 做采集成本高/易触发")
+        add("爬虫/数据采集", "warn", "可用，但非机房 IP 做采集成本高/易触发")
 
     # 电商/支付
     if datacenter or anon or abuse:
         add("电商/支付", "no", "风控最严，机房/代理/滥用 IP 基本不可用")
     else:
-        add("电商/支付", "warn", "住宅 IP 可试，但支付类仍需 KYC 与行为验证")
+        add("电商/支付", "warn", "住宅/企业 IP 可试，但支付类仍需 KYC 与行为验证")
 
     # 流媒体
     if vpn:
         add("流媒体解锁", "warn", "VPN 可能被封（Netflix 等），需实测")
     elif datacenter:
         add("流媒体解锁", "warn", "机房 IP 多数流媒体会拦，原生住宅更稳")
+    elif residential or mobile:
+        add("流媒体解锁", "ok", "住宅/移动 IP 解锁成功率较高")
     else:
-        add("流媒体解锁", "ok", "住宅/原生 IP 解锁成功率较高")
+        add("流媒体解锁", "warn", "非住宅/移动网络，流媒体解锁成功率一般")
     return out
 
 
-def compute_platforms(flags, geo, net, scores):
+def compute_platforms(flags, geo, net, scores, ip_type=""):
     """按具体平台给可用度（基于平台规则库 × 类别基线分）。"""
-    cat_scores = {item["category"]: item["score"] for item in _platform_fit(flags, geo, net, scores)}
+    cat_scores = {item["category"]: item["score"] for item in _platform_fit(flags, geo, net, scores, ip_type)}
     cc = (geo.get("country_code") or "").upper()
     out = []
     for name, cfg in PLATFORMS.items():
@@ -1031,9 +1054,9 @@ def aggregate(ip, results):
     scores_view = {"spamhaus_listed": spamhaus_listed, "vt_malicious": vt_mal,
                    "abuse_confidence": abuse_conf, "ipsum_listed": ipsum_listed}
     net_view = {"asn_org": asn_org}
-    platform_fit = _platform_fit(flags_view, geo, net_view, scores_view)
+    platform_fit = _platform_fit(flags_view, geo, net_view, scores_view, ip_type)
     decisions = compute_decisions(ip_type, flags_view, scores_view, geo)
-    platforms = compute_platforms(flags_view, geo, net_view, scores_view)
+    platforms = compute_platforms(flags_view, geo, net_view, scores_view, ip_type)
 
     return {
         "ip": ip,
