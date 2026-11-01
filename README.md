@@ -1,5 +1,7 @@
 # ip-reputation-check
 
+**中文** | [English](README.en.md)
+
 > 一条命令，多源并发把一个 IP 的「地理 / ASN / 代理 / VPN / 机房 / 欺诈分 / 滥用记录 / 综合风险」一次查清，
 > 并给出**每个维度的置信度（高/中/低）**。纯 Python 标准库，可作为 **skill** 被任意 agent 加载。
 >
