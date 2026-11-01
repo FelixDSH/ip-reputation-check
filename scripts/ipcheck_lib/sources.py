@@ -101,6 +101,29 @@ def src_proxycheck(ip, timeout):
         "hosting": (str(ptype).lower() in ("hosting", "business")) if ptype else None,
     }
 
+_SCAM_BLOCK_MARKERS = ("just a moment", "cf-chl", "challenge-platform", "attention required",
+                       "captcha", "access denied", "403 forbidden", "request blocked",
+                       "enable javascript and cookies", "are you a robot")
+
+
+def parse_scamalytics_html(txt, ip=None):
+    """解析 Scamalytics 网页；异常页面/字段缺失/越界一律报错（契约检测，绝不猜）。"""
+    if not txt or not txt.strip():
+        raise RuntimeError("页面为空")
+    low = txt.lower()
+    if any(k in low for k in _SCAM_BLOCK_MARKERS):
+        raise RuntimeError("页面异常(验证码/拦截页)，未解析")
+    m = re.search(r"Fraud Score[^0-9]{0,60}(\d+)", txt, re.I)
+    if not m:
+        raise RuntimeError("页面未解析到 Fraud Score（可能为错误页或改版）")
+    score = int(m.group(1))
+    if not (0 <= score <= 100):
+        raise RuntimeError("Fraud Score 越界(%d)，页面异常" % score)
+    m2 = re.search(r"(Very Low|Low|Medium|High|Very High)\s*Risk", txt, re.I)
+    risk = m2.group(1).title() if m2 else None
+    return {"fraud_score": score, "risk": risk, "via": "html", "contract": "ok"}
+
+
 def src_scamalytics(ip, timeout):
     # 优先 API（若有 key），否则解析网页
     user = os.environ.get("SCAMALYTICS_USER", "").strip()
@@ -111,23 +134,15 @@ def src_scamalytics(ip, timeout):
         _, txt = http_get(url, timeout=timeout)
         d = _j(txt)
         sc = (d.get("scamalytics") or d.get("score") or {})
-        score = sc.get("scamalytics_score", d.get("scamalytics_score"))
+        score = _to_int(sc.get("scamalytics_score", d.get("scamalytics_score")))
         risk = sc.get("risk", d.get("risk"))
-        return {"fraud_score": _to_int(score), "risk": risk, "via": "api"}
+        if score is not None and not (0 <= score <= 100):
+            raise RuntimeError("API 返回 Fraud Score 越界(%s)" % score)
+        return {"fraud_score": score, "risk": risk, "via": "api"}
 
     _, txt = http_get("https://scamalytics.com/ip/%s" % ip, timeout=timeout,
                       headers={"Accept": "text/html"})
-    score = None
-    risk = None
-    m = re.search(r"Fraud Score[^0-9]{0,60}(\d+)", txt, re.I)
-    if m:
-        score = int(m.group(1))
-    m2 = re.search(r"(Very Low|Low|Medium|High|Very High)\s*Risk", txt, re.I)
-    if m2:
-        risk = m2.group(1).title()
-    if score is None and risk is None:
-        raise RuntimeError("页面未解析到 Fraud Score（可能被拦截或改版）")
-    return {"fraud_score": score, "risk": risk, "via": "html"}
+    return parse_scamalytics_html(txt, ip)
 
 def src_iphub(ip, timeout):
     """有 key 走官方 v2 API；无 key 走网站游客接口 POST /api/lookup/ip。
@@ -234,6 +249,15 @@ def _iso(ts):
     return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(ts))
 
 
+def _looks_ip(s):
+    from ipaddress import ip_address
+    try:
+        ip_address((s or "").strip())
+        return True
+    except ValueError:
+        return False
+
+
 def _load_ipsum(timeout, refresh=False):
     """下载并缓存 IPsum 名单。返回 (data, 名单实际取得时间ts)。refresh=True 强制重取名单。"""
     global _IPSUM_DATA, _IPSUM_TS
@@ -269,6 +293,9 @@ def _load_ipsum(timeout, refresh=False):
                 data[parts[0]] = int(parts[1])
             except ValueError:
                 continue
+    low = text[:300].lower()
+    if "<html" in low or "<!doctype" in low or not data:
+        raise RuntimeError("IPsum 名单异常(HTML/错误页或空)，本次不采信")
     _IPSUM_DATA, _IPSUM_TS = data, ts
     return data, ts
 
@@ -486,7 +513,12 @@ def _load_tor(timeout, refresh=False):
     if not refresh and _TOR_DATA is not None and now - _TOR_TS < _TOR_TTL:
         return _TOR_DATA, _TOR_TS
     _, txt = http_get("https://check.torproject.org/torbulkexitlist", timeout=max(timeout, 20))
-    s = set(l.strip() for l in txt.splitlines() if l.strip() and not l.startswith("#"))
+    low = txt[:300].lower()
+    if "<html" in low or "<!doctype" in low:
+        raise RuntimeError("Tor 名单异常(HTML/错误页)，本次不采信")
+    s = set(l.strip() for l in txt.splitlines() if _looks_ip(l))
+    if len(s) < 50:
+        raise RuntimeError("Tor 名单异常(有效 IP 过少:%d)，本次不采信" % len(s))
     _TOR_DATA, _TOR_TS = s, now
     return s, now
 
@@ -525,5 +557,6 @@ def set_only_sources(names):
 
 
 
-__all__ = ['ALL_SOURCES', 'src_ipinfo', 'src_ipapi', 'src_ipwhois', 'src_proxycheck', 'src_scamalytics', 'src_iphub', 'src_abuseipdb', 'src_stopforumspam', 'src_blocklistde', '_IPSUM_LOCK', '_IPSUM_DATA', '_IPSUM_TS', '_IPSUM_TTL', '_load_ipsum', 'src_ipsum', '_dns_query_a', 'src_spamhaus', 'src_virustotal', 'src_dbip', '_MMDB_CACHE', '_ascii_path', '_maxmind_path', 'src_maxmind', 'src_rdap', 'src_ripe_bgp', '_TOR_DATA', '_TOR_TS', '_TOR_TTL', '_load_tor', 'src_tor_exit', '_iso', 'SOURCES', 'set_only_sources']
+__all__ = ['ALL_SOURCES', 'src_ipinfo', 'src_ipapi', 'src_ipwhois', 'src_proxycheck', 'src_scamalytics', 'src_iphub', 'src_abuseipdb', 'src_stopforumspam', 'src_blocklistde', '_IPSUM_LOCK', '_IPSUM_DATA', '_IPSUM_TS', '_IPSUM_TTL', '_load_ipsum', 'src_ipsum', '_dns_query_a', 'src_spamhaus', 'src_virustotal', 'src_dbip', '_MMDB_CACHE', '_ascii_path', '_maxmind_path', 'src_maxmind', 'src_rdap', 'src_ripe_bgp', '_TOR_DATA', '_TOR_TS', '_TOR_TTL', '_load_tor', 'src_tor_exit', '_iso', '_looks_ip', 'parse_scamalytics_html', 'SOURCES', 'set_only_sources']
+
 

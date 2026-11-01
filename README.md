@@ -557,6 +557,32 @@ python scripts/ipcheck.py history --node direct --scenario ai
 - 条目校验：非 dict / data 非 dict / 时间字段类型错 → 忽略并重查（安全降级）。
 - 目的：省额度/提速/失败兜底，**不是"提升准确率"**。
 
+## 来源关系说明（简短，非图谱）
+
+**数量 ≠ 独立证据**：下表记录用途/已知上游/独立性/条款；不确定即标"未知"。
+
+| 来源 | 用途/字段 | 已知上游关系 | 独立性 | 条款 |
+|---|---|---|---|---|
+| ipinfo | geo/ASN | 自有聚合 | 未知 | ipinfo.io/terms |
+| ip-api | geo/proxy 标记 | 可能转售多家 | 未知 | ip-api.com/docs/legal |
+| ipwho.is | geo/ASN | 聚合公开数据 | 未知 | ipwhois.io |
+| proxycheck | proxy/VPN/类型 | 自有 | 未知 | proxycheck.io terms |
+| scamalytics | 欺诈分 | 聚合 30+ 名单 | 未知（或与 IPsum 重叠） | scamalytics.com |
+| iphub | proxy 分级 | 自有规则 | 未知 | iphub.info |
+| AbuseIPDB | 滥用举报 | 社区上报 | 社区（可被刷） | abuseipdb.com/api |
+| StopForumSpam | 垃圾信息 | 社区 | 未知 | stopforumspam.com |
+| blocklist.de | 攻击举报 | 蜜罐 | 未知 | blocklist.de |
+| IPsum | 聚合黑名单 | **聚合 30+ 公开名单（可能与他源重叠）** | **否（聚合）** | github.com/stamparm/ipsum |
+| Spamhaus | DNSBL | 自有 | 独立 | spamhaus.com/terms |
+| VirusTotal | 多引擎 | 聚合 70+ 引擎（样本共享） | 部分独立 | virustotal.com terms |
+| DB-IP | geo | 自有 | 未知 | db-ip.com |
+| MaxMind | geo | 自有 | 独立 | maxmind.com terms |
+| RDAP | 登记 | 官方 RIR | 权威登记 | icann.org |
+| RIPEstat | BGP 路由 | RIPE RIS 观测 | 独立观测 | stat.ripe.net |
+| Tor 官方出口 | Tor | 官方名单 | 独立 | torproject.org |
+
+> 上表**不是血缘图谱**；无法证明独立时按"未知"处理，不因数量提升证据等级。
+
 ## 风险判定模型
 
 - 外部分：取 Scamalytics 欺诈分、AbuseIPDB 置信度、Spamhaus 命中(≈90)、VirusTotal 恶意数换算 的较大值（0–100）。
