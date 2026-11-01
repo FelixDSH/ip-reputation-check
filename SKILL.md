@@ -46,11 +46,13 @@ python <skill_dir>/scripts/ipcheck.py <IP> [<IP2> ...]
 
 （也支持显式 `check` 子命令；直接给 IP 即可。）
 
-1. 直接执行，不要反问问、不要先讲注意事项。
+1. 直接执行，不要反问、不要先讲注意事项。
 2. 把命令输出（报表）原样或整理成要点回复给用户；想更精简可加 `--brief`（一行式）。
-3. 多 IP 时逐行/逐段列出，每个 IP 单独给结论。
-4. 需要结构化数据或二次处理时加 `--json`。
-5. 若某源被跳过（如未配 abuseipdb key），在结尾说明"缺哪个 key 可补哪个指标"，不要因此中止。
+3. **回复里必须包含「站点适配度」和「置信度」**（站点适配度默认就输出，不要省略、不要等用户追问）。
+4. **站点适配度是「规则推算，非实测」**：汇报时明确标注；红灯=机房/代理/VPN 易触发风控，不代表一定不可用或会封号。
+5. 多 IP 时逐行/逐段列出，每个 IP 单独给结论。
+6. 需要结构化数据或二次处理时加 `--json`。
+7. 若某源被跳过（未配 key、iphub 验证码、**Spamhaus 遇 Fake-IP DNS**等），必须说明"哪项没查到/不可信"，**不能把『部分没查』当成『安全』**。
 
 ### 常用命令
 
@@ -71,8 +73,8 @@ python scripts/ipcheck.py <IP> --env      # 检查某 IP 时附带环境一致�
 python scripts/ipcheck.py 8.8.8.8 --open
 python scripts/ipcheck.py open 8.8.8.8 --all
 
-# 追加具体平台结论（X/FB/TikTok/OpenAI/Claude/PayPal/Netflix...）
-python scripts/ipcheck.py 8.8.8.8 --platforms
+# 站点适配度默认就显示；--no-platforms 可关闭
+python scripts/ipcheck.py 8.8.8.8
 # 追加服务在 IP 所在国的可用性
 python scripts/ipcheck.py 8.8.8.8 --regions
 # 批量 + 导出 CSV / 监控变化或出口漂移
@@ -127,6 +129,7 @@ python scripts/ipcheck.py check <IP> --gateway http://GATEWAY:8787
 - 判定为"代理/VPN/机房"不等于恶意；很多 CDN（如 Cloudflare、Google DNS）也会被标 hosting。
 - **滥用举报不止 AbuseIPDB**：AbuseIPDB 需免费 key；免 key 的 StopForumSpam / blocklist.de / IPsum / Spamhaus DNSBL 已自动包含并计入风险。想直接看 AbuseIPDB 网页用 `python scripts/ipcheck.py open <IP>`（自动带入 IP）。
 - **不是权威**：本工具是多源聚合初筛，按源等级（A 权威/B 专业/C 社区）和一致度给置信度。汇报时要如实说明置信度，不要把它当风控定论。
+- **Spamhaus 遇 Fake-IP**：若本地代理/Clash 等把 DNS 劫持成 Fake-IP（如返回 198.18.x.x），Spamhaus DNSBL 结果不可信，工具会报「DNS 返回异常…不可信」并跳过——此时不能当成"未上榜/干净"。
 - **平台适配度是启发式**：🟢/🟡/🔴 只是「机房/VPN/代理/滥用/AI地区限制」等信号的加权初筛，不代表平台真实判定；各平台策略随时变。
 
 ## 作为 skill 安装

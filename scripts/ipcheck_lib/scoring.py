@@ -296,8 +296,10 @@ def aggregate(ip, results):
     abuse_conf = _to_int(abuse.get("abuse_confidence"))
 
     spamhaus, vt = srcs["spamhaus"], srcs["virustotal"]
-    spamhaus_listed = bool(spamhaus.get("listed"))
-    vt_mal = _to_int(vt.get("malicious"))
+    spamhaus_ok = bool(get.get("spamhaus") and get["spamhaus"]["ok"])
+    vt_ok = bool(get.get("virustotal") and get["virustotal"]["ok"])
+    spamhaus_listed = bool(spamhaus.get("listed")) if spamhaus_ok else None
+    vt_mal = _to_int(vt.get("malicious")) if vt_ok else None
 
     # 免 key 举报类渠道汇总
     sfs_freq = _to_int(sfs.get("frequency"))
@@ -339,6 +341,8 @@ def aggregate(ip, results):
     elif (abuse_conf and abuse_conf > 0) or (sfs_freq and sfs_freq > 0) or \
             (bl_attacks and bl_attacks > 0) or ipsum_listed:
         conf_abuse = {"level": "medium", "note": "仅社区/聚合命中"}
+    elif not spamhaus_ok and not vt_ok:
+        conf_abuse = {"level": "unknown", "note": "权威源不可用(Spamhaus/VT)，无权威结论"}
     else:
         conf_abuse = {"level": "low", "note": "无命中≠安全"}
     confidence = {

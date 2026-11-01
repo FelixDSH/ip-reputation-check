@@ -309,13 +309,18 @@ def src_spamhaus(ip, timeout):
         raise RuntimeError("Spamhaus DNS 查询超时")
     if ans.startswith("127.255.255."):
         raise RuntimeError("Spamhaus 拒绝当前 DNS 出口（公共解析器/超量），请直连或降低频率")
+    # DNSBL 正常只有两种应答：NXDOMAIN(未上榜) 或 127.0.0.x(上榜)。
+    # 若解析器返回其它地址（如 Clash/Surge 的 Fake-IP 198.18.0.0/15、0.0.0.0 等），
+    # 说明 DNS 被本地代理接管 → 结果不可信，必须报错而不是当成“未命中”。
+    if not ans.startswith("127.0.0."):
+        raise RuntimeError("DNS 返回异常(%s)，疑似 Fake-IP/本地代理 DNS，Spamhaus 结果不可信" % ans)
     code_map = {
         "127.0.0.2": "SBL", "127.0.0.3": "XBL/CSS", "127.0.0.4": "PBL",
         "127.0.0.5": "PBL", "127.0.0.6": "PBL", "127.0.0.7": "PBL",
         "127.0.0.9": "DROP", "127.0.0.10": "PBL", "127.0.0.11": "PBL",
     }
     zones = [code_map[ans]] if ans in code_map else []
-    listed = ans.startswith("127.0.0.")
+    listed = True
     return {"listed": listed, "zones": zones, "answer": ans}
 
 def src_virustotal(ip, timeout):

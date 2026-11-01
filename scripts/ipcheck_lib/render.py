@@ -21,7 +21,7 @@ def render_platforms(agg):
     rows = agg.get("platforms") or []
     if not rows:
         return ""
-    lines = ["各平台可用度(启发式,非平台真实判定):"]
+    lines = ["站点适配度(规则推算,非实测; 红灯=机房/代理/VPN 易触发风控，不代表一定不可用或会封号):"]
     for r in rows:
         lines.append("  %s  %-18s %s" % (r["label"], r["platform"], r["note"]))
     return "\n".join(lines)

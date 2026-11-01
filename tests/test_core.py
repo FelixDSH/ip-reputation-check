@@ -119,6 +119,22 @@ class TestParsers(unittest.TestCase):
                 ic.src_iphub("1.2.3.4", 5)
         self.assertIn("人机验证", str(cm.exception))
 
+    def test_spamhaus_fakeip_untrusted(self):
+        # Fake-IP DNS 返回 198.18.0.15 → 不能当“未命中”，必须报不可信
+        with mock.patch.object(S, "_dns_query_a", lambda *a, **k: "198.18.0.15"):
+            with self.assertRaises(RuntimeError) as cm:
+                ic.src_spamhaus("1.2.3.4", 5)
+        self.assertIn("不可信", str(cm.exception))
+
+    def test_spamhaus_not_listed(self):
+        import socket as _s
+
+        def boom(*a, **k):
+            raise _s.gaierror()
+        with mock.patch.object(S, "_dns_query_a", boom):
+            d = ic.src_spamhaus("1.2.3.4", 5)
+        self.assertFalse(d["listed"])
+
 
 class TestScoring(unittest.TestCase):
     def test_risk_thresholds(self):

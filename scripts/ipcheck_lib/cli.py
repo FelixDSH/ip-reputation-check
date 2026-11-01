@@ -241,7 +241,7 @@ def cmd_check(args):
             print(render_report(agg, color=color))
             if agg.get("env"):
                 print(render_env(agg["env"]))
-            if getattr(args, "platforms", False):
+            if not getattr(args, "no_platforms", False):
                 extra = render_platforms(agg)
                 if extra:
                     print(extra)
@@ -358,7 +358,8 @@ def build_parser():
     pc.add_argument("--brief", action="store_true", help="一行式简报")
     pc.add_argument("--open", action="store_true", help="检测后自动打开 abuseipdb/iphub 网页(IP已带入)")
     pc.add_argument("--env", action="store_true", help="附加环境一致性检测（本机时区/DNS vs IP，防关联指纹）")
-    pc.add_argument("--platforms", action="store_true", help="追加各具体平台(X/FB/TikTok/OpenAI/Claude/PayPal/Netflix 等)可用度")
+    pc.add_argument("--platforms", action="store_true", help="(兼容保留) 站点适配度现已默认显示")
+    pc.add_argument("--no-platforms", action="store_true", help="不显示站点适配度")
     pc.add_argument("--regions", action="store_true", help="追加各服务在 IP 所在国的可用性(OpenAI/Netflix/PayPal 等)")
     pc.add_argument("--gateway", default=None,
                     help="走自建网关（也可用环境变量 IPCHECK_GATEWAY），客户端无需任何源 key")

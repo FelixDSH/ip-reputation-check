@@ -113,6 +113,7 @@ ipinfo.io、iphub.info、scamalytics.com、abuseipdb.com 手动输入——非�
 | **MaxMind GeoLite2** | 地理（最权威，本地库） | 免费 License Key + `maxminddb` |
 
 缺 key 的源会自动跳过并在报告里标注，不影响其它指标。
+Spamhaus 走 DNS 查询：若本机用 Clash/Surge 等 **Fake-IP** 模式，DNS 会被劫持成 `198.18.x.x`，工具会判为"DNS 返回异常、结果不可信"并跳过——**不会**把它当成"未上榜/干净"。
 
 ## 快速开始
 
@@ -197,7 +198,7 @@ $env:ABUSEIPDB_API_KEY="你的key"
 ## 命令行参数
 
 ```
-ipcheck check <IP...> [--file F] [--csv out.csv] [--json] [--brief] [--open] [--env] [--platforms] [--regions] [--interval S] [--only ...] [--gateway URL]
+ipcheck check <IP...> [--file F] [--csv out.csv] [--json] [--brief] [--open] [--env] [--no-platforms] [--regions] [--interval S] [--only ...] [--gateway URL]
 ipcheck open <IP> [--all] [--which abuseipdb,iphub,scamalytics,stopforumspam]
 ipcheck myip [--json]        # 出口 IP + 环境一致性
 ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only ...]
@@ -386,11 +387,13 @@ python scripts/ipcheck.py <IP> --env      # 检查某 IP 时附带环境比对
 ⚠️ 谨慎   注册社媒/AI账号   机房 IP 易触发手机验证
 ```
 
-加 `--platforms` 看**具体平台**结论（内置规则库）：
+**站点适配度默认就显示**（规则推算，非实测），不需要加参数；`--no-platforms` 可关闭：
 ```bash
-python scripts/ipcheck.py 8.8.8.8 --platforms
+python scripts/ipcheck.py 8.8.8.8              # 默认含站点适配度
+python scripts/ipcheck.py 8.8.8.8 --no-platforms
 ```
 内置平台：X、Facebook/Instagram、TikTok、Telegram、WhatsApp、Google、OpenAI/ChatGPT、Claude、Gemini、Midjourney、Amazon、PayPal、Binance、Netflix、Spotify。
+> 这是根据 IP 画像（机房/代理/VPN/地区限制）的**规则推算，不是实测**；红灯=易触发风控，不代表一定不可用或会封号。真正实测需从该 IP 出口实际访问。
 
 平台风控强度（机房/VPN，供参考）：
 
