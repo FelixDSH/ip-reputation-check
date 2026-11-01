@@ -723,6 +723,7 @@ def build_parser():
     pm = sub.add_parser("myip", help="查看当前出口 IP")
     pm.add_argument("--json", action="store_true")
     pm.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
+    pm.add_argument("--no-color", action="store_true")
     pm.set_defaults(func=cmd_myip)
 
     ps = sub.add_parser("stability", help="出口 IP 稳定性检测")
