@@ -73,6 +73,12 @@ python scripts/ipcheck.py open 8.8.8.8 --all
 
 # 追加具体平台结论（X/FB/TikTok/OpenAI/Claude/PayPal/Netflix...）
 python scripts/ipcheck.py 8.8.8.8 --platforms
+# 追加服务在 IP 所在国的可用性
+python scripts/ipcheck.py 8.8.8.8 --regions
+# 批量 + 导出 CSV / 监控变化或出口漂移
+python scripts/ipcheck.py --file ips.txt --csv result.csv
+python scripts/ipcheck.py watch 8.8.8.8 --interval 60
+python scripts/ipcheck.py watch --egress --interval 30
 
 # 看当前出口 IP
 python scripts/ipcheck.py myip

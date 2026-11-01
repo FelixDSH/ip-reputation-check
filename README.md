@@ -152,10 +152,11 @@ $env:ABUSEIPDB_API_KEY="你的key"
 ## 命令行参数
 
 ```
-ipcheck check <IP...> [--json] [--brief] [--open] [--env] [--platforms] [--only a,b,...] [--gateway URL] [--timeout 12] [--no-color]
+ipcheck check <IP...> [--file F] [--csv out.csv] [--json] [--brief] [--open] [--env] [--platforms] [--regions] [--only ...] [--gateway URL]
 ipcheck open <IP> [--all] [--which abuseipdb,iphub,scamalytics,stopforumspam]
 ipcheck myip [--json]        # 出口 IP + 环境一致性
 ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only ...]
+ipcheck watch [IP...] [--egress] [--interval 60] [--rounds N]   # 监控变化/漂移
 ```
 
 `--only` 可选值：`ipinfo,ipapi,ipwhois,proxycheck,scamalytics,iphub,abuseipdb,stopforumspam,blocklistde,ipsum,spamhaus,virustotal,dbip,maxmind`
@@ -358,6 +359,31 @@ python scripts/ipcheck.py 8.8.8.8 --platforms
 | X / Google | 机房易触发手机验证 |
 | Netflix | 封 VPN，需原生住宅 |
 | Telegram | 对 VPN 较宽松 |
+
+## 服务地区可用性（按 IP 所在国）
+
+加 `--regions` 会按 IP 所在国列出各服务是否可用（近似，以官方为准）：
+```bash
+python scripts/ipcheck.py 8.8.8.8 --regions
+```
+覆盖：OpenAI/ChatGPT、Claude、Gemini、Netflix、Spotify、TikTok、PayPal、Binance、Steam。
+例如美国 IP 会提示 `Binance ⛔ 受限（美国需 binance.us）`。
+
+## 批量 / 导出 / 监控
+
+```bash
+# 批量：从文件读 IP（每行一个，# 注释）
+python scripts/ipcheck.py --file ips.txt --brief
+
+# 导出 CSV（UTF-8-BOM，Excel 直接打开）
+python scripts/ipcheck.py --file ips.txt --csv result.csv
+
+# 监控：目标 IP 关键属性(类型/代理/风险)变化
+python scripts/ipcheck.py watch 8.8.8.8 --interval 60
+
+# 监控：自身出口 IP 是否漂移（会话/代理稳定性）
+python scripts/ipcheck.py watch --egress --interval 30
+```
 
 ## 风险判定模型
 

@@ -117,6 +117,19 @@ PLATFORMS = {
     "Spotify": {"cat": "流媒体(Netflix/Spotify)", "strict": 0.65, "note": "地区限制为主"},
 }
 
+# 服务地区可用性（按 IP 所在国判断；近似值，以各平台官方最新政策为准）
+SERVICE_REGIONS = {
+    "OpenAI/ChatGPT": {"restricted": set(AI_RESTRICTED) | {"SD", "SS", "AF"}, "note": "需支持地区 + 非机房"},
+    "Claude": {"restricted": set(AI_RESTRICTED) | {"SD", "SS"}, "note": "需支持地区"},
+    "Gemini": {"restricted": {"CN", "RU", "KP", "IR", "SY", "CU"}, "note": ""},
+    "Netflix": {"restricted": {"CN", "KP", "SY", "IR", "RU"}, "note": "地区内容不同，封VPN"},
+    "Spotify": {"restricted": {"CN", "KP", "IR", "SY"}, "note": ""},
+    "TikTok": {"restricted": {"CN", "IR", "KP", "IN", "SY"}, "note": "部分地区禁用"},
+    "PayPal": {"restricted": {"IR", "KP", "SY", "CU", "SD", "SS"}, "note": ""},
+    "Binance": {"restricted": {"US", "CN", "IR", "KP", "SY", "CU"}, "note": "美国需 binance.us"},
+    "Steam": {"restricted": {"KP", "IR", "SY", "CU"}, "note": ""},
+}
+
 
 # --------------------------------------------------------------------------- #
 # HTTP 基础
@@ -853,6 +866,60 @@ def render_platforms(agg):
     return "\n".join(lines)
 
 
+def compute_regions(geo):
+    """按 IP 所在国判断各服务是否可用（近似，以官方为准）。"""
+    cc = (geo.get("country_code") or "").upper()
+    name = geo.get("country") or cc or "?"
+    out = []
+    for svc, cfg in SERVICE_REGIONS.items():
+        restricted = cc in cfg.get("restricted", set())
+        out.append({
+            "service": svc,
+            "available": not restricted,
+            "label": "⛔ 受限/不可用" if restricted else "✅ 可用(约)",
+            "note": cfg.get("note", ""),
+        })
+    return {"country": name, "country_code": cc, "services": out}
+
+
+def render_regions(reg):
+    lines = ["服务地区可用性(按 IP 所在国 %s，近似，以官方为准):" % (reg.get("country") or "?"), ]
+    for s in reg.get("services", []):
+        lines.append("  %s  %-16s %s" % (s["label"], s["service"], s["note"]))
+    return "\n".join(lines)
+
+
+def write_csv(rows, path):
+    """把检测结果导出 CSV（UTF-8-BOM，Excel 可直接打开）。"""
+    import csv
+    cols = ["ip", "country", "city", "asn_org", "ip_type", "proxy", "vpn", "hosting",
+            "mobile", "fraud_score", "abuse_confidence", "spamhaus", "vt_malicious",
+            "risk_score", "risk_level", "geo_conf", "proxy_conf", "abuse_conf"]
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(cols)
+        for r in rows:
+            w.writerow([r.get(c, "") for c in cols])
+    return path
+
+
+def _agg_to_row(agg):
+    geo, net, fl, sc, vd = agg["geo"], agg["network"], agg["flags"], agg["scores"], agg["verdict"]
+    conf = agg.get("confidence") or {}
+    return {
+        "ip": agg.get("ip"), "country": geo.get("country"), "city": geo.get("city"),
+        "asn_org": net.get("asn_org"), "ip_type": agg.get("ip_type"),
+        "proxy": fl.get("proxy"), "vpn": fl.get("vpn"), "hosting": fl.get("hosting"),
+        "mobile": fl.get("mobile"), "fraud_score": sc.get("fraud_score"),
+        "abuse_confidence": sc.get("abuse_confidence"), "spamhaus": sc.get("spamhaus_listed"),
+        "vt_malicious": sc.get("vt_malicious"), "risk_score": vd.get("risk_score"),
+        "risk_level": vd.get("risk_level"),
+        "geo_conf": (conf.get("geo") or {}).get("level"),
+        "proxy_conf": (conf.get("proxy") or {}).get("level"),
+        "abuse_conf": (conf.get("abuse") or {}).get("level"),
+    }
+
+
 def aggregate(ip, results):
     get = {r["source"]: r for r in results}
     srcs = {name: (get[name]["data"] if get.get(name) and get[name]["ok"] else {})
@@ -1511,8 +1578,23 @@ def cmd_check(args):
     from ipaddress import ip_address
     gw = (args.gateway or os.environ.get("IPCHECK_GATEWAY", "").strip() or None)
     gw_token = os.environ.get("IPCHECK_GATEWAY_TOKEN", "").strip() or None
+    ips = list(args.ips or [])
+    if getattr(args, "file", None):
+        try:
+            with open(args.file, "r", encoding="utf-8-sig") as f:
+                for line in f:
+                    line = line.split("#")[0].strip()
+                    if line:
+                        ips.append(line)
+        except Exception as e:  # noqa: BLE001
+            print("读取 --file 失败: %s" % e, file=sys.stderr)
+            return 2
+    if not ips:
+        print("请提供 IP（直接给参数，或用 --file 列出）", file=sys.stderr)
+        return 2
+    csv_rows = []
     rc = 0
-    for idx, ip in enumerate(args.ips):
+    for idx, ip in enumerate(ips):
         try:
             ip_address(ip)
         except ValueError:
@@ -1533,6 +1615,12 @@ def cmd_check(args):
                 agg["env"] = env_consistency(agg.get("geo") or {})
             except Exception:
                 agg["env"] = {}
+        if getattr(args, "regions", False):
+            try:
+                agg["regions"] = compute_regions(agg.get("geo") or {})
+            except Exception:
+                agg["regions"] = None
+        csv_rows.append(_agg_to_row(agg))
         if args.json:
             print(render_json(agg))
         elif getattr(args, "brief", False):
@@ -1547,6 +1635,8 @@ def cmd_check(args):
                 extra = render_platforms(agg)
                 if extra:
                     print(extra)
+            if agg.get("regions"):
+                print(render_regions(agg["regions"]))
         if getattr(args, "open", False):
             import webbrowser
             for u in ("https://www.abuseipdb.com/check/%s" % ip,
@@ -1556,7 +1646,82 @@ def cmd_check(args):
                 except Exception:
                     pass
             print("已打开 abuseipdb / iphub 网页（IP 已带入，可人工核验）")
+    if getattr(args, "csv", None):
+        try:
+            write_csv(csv_rows, args.csv)
+            print("已导出 CSV: %s（%d 行）" % (args.csv, len(csv_rows)), file=sys.stderr)
+        except Exception as e:  # noqa: BLE001
+            print("导出 CSV 失败: %s" % e, file=sys.stderr)
+            rc = 2
     return rc
+
+
+def cmd_watch(args):
+    """轮询监控：目标 IP 关键属性变化，或监控自身出口 IP 漂移。"""
+    color = not args.no_color and sys.stdout.isatty()
+    c = C(color)
+    from ipaddress import ip_address
+    light = args.only or ["ipinfo", "ipapi", "proxycheck", "spamhaus"]
+
+    def snap(agg):
+        fl, vd, sc = agg["flags"], agg["verdict"], agg["scores"]
+        return {
+            "ip_type": agg.get("ip_type"),
+            "proxy": fl.get("proxy"), "vpn": fl.get("vpn"),
+            "hosting": fl.get("hosting"),
+            "risk": vd.get("risk_score"),
+            "spamhaus": sc.get("spamhaus_listed"),
+        }
+
+    def diff(old, new):
+        ch = []
+        for k in ("ip_type", "proxy", "vpn", "hosting", "risk", "spamhaus"):
+            if old.get(k) != new.get(k):
+                ch.append("%s: %s -> %s" % (k, old.get(k), new.get(k)))
+        return ch
+
+    print(c.b("监控开始：间隔 %ds，%s（Ctrl+C 停止）" %
+              (args.interval, "出口 IP 漂移" if args.egress else "目标 IP 变化")))
+    prev = {}
+    prev_egress = None
+    rounds = args.rounds or 10**9
+    try:
+        for r in range(rounds):
+            ts = time.strftime("%Y-%m-%d %H:%M:%S")
+            if args.egress:
+                ip, via = get_egress_ip(args.timeout)
+                if not ip:
+                    print("[%s] 采样失败" % ts)
+                elif prev_egress is None:
+                    prev_egress = ip
+                    print("[%s] 出口 IP: %s" % (ts, ip))
+                elif ip != prev_egress:
+                    print(c.yellow("[%s] ⚠️ 出口 IP 漂移: %s -> %s" % (ts, prev_egress, ip)))
+                    prev_egress = ip
+                else:
+                    print(c.dim("[%s] 出口 IP 稳定: %s" % (ts, ip)))
+            else:
+                for ip in args.ips:
+                    try:
+                        ip_address(ip)
+                    except ValueError:
+                        continue
+                    agg = check_ip(ip, only=light, timeout=args.timeout)
+                    cur = snap(agg)
+                    if ip in prev:
+                        ch = diff(prev[ip], cur)
+                        if ch:
+                            print(c.yellow("[%s] ⚠️ %s 变化: %s" % (ts, ip, "; ".join(ch))))
+                        else:
+                            print(c.dim("[%s] %s 无变化 (risk=%s)" % (ts, ip, cur.get("risk"))))
+                    else:
+                        print("[%s] %s 基线: type=%s risk=%s" % (ts, ip, cur.get("ip_type"), cur.get("risk")))
+                    prev[ip] = cur
+            if r < rounds - 1:
+                time.sleep(args.interval)
+    except KeyboardInterrupt:
+        print("\n监控已停止")
+    return 0
 
 
 def build_parser():
@@ -1575,7 +1740,9 @@ def build_parser():
     sub = p.add_subparsers(dest="cmd")
 
     pc = sub.add_parser("check", help="检测一个或多个 IP")
-    pc.add_argument("ips", nargs="+", help="要检测的 IP（可多个）")
+    pc.add_argument("ips", nargs="*", help="要检测的 IP（可多个；也可用 --file）")
+    pc.add_argument("--file", default=None, help="从文件读 IP（每行一个，# 注释）")
+    pc.add_argument("--csv", default=None, help="把结果导出 CSV")
     pc.add_argument("--only", type=_parse_only, default=None,
                     help="只用这些源，逗号分隔: " + ",".join(ALL_SOURCES))
     pc.add_argument("--json", action="store_true", help="输出 JSON")
@@ -1583,6 +1750,7 @@ def build_parser():
     pc.add_argument("--open", action="store_true", help="检测后自动打开 abuseipdb/iphub 网页(IP已带入)")
     pc.add_argument("--env", action="store_true", help="附加环境一致性检测（本机时区/DNS vs IP，防关联指纹）")
     pc.add_argument("--platforms", action="store_true", help="追加各具体平台(X/FB/TikTok/OpenAI/Claude/PayPal/Netflix 等)可用度")
+    pc.add_argument("--regions", action="store_true", help="追加各服务在 IP 所在国的可用性(OpenAI/Netflix/PayPal 等)")
     pc.add_argument("--gateway", default=None,
                     help="走自建网关（也可用环境变量 IPCHECK_GATEWAY），客户端无需任何源 key")
     pc.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
@@ -1611,6 +1779,16 @@ def build_parser():
     ps.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     ps.add_argument("--no-color", action="store_true")
     ps.set_defaults(func=cmd_stability)
+
+    pw = sub.add_parser("watch", help="轮询监控：目标 IP 变化 / 出口 IP 漂移")
+    pw.add_argument("ips", nargs="*", help="要监控的 IP（--egress 时不需要）")
+    pw.add_argument("--egress", action="store_true", help="监控自身出口 IP 是否漂移")
+    pw.add_argument("--interval", type=int, default=60, help="轮询间隔秒")
+    pw.add_argument("--rounds", type=int, default=0, help="轮询轮数，0=直到 Ctrl+C")
+    pw.add_argument("--only", type=_parse_only, default=None, help="监控使用的源（默认轻量集）")
+    pw.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
+    pw.add_argument("--no-color", action="store_true")
+    pw.set_defaults(func=cmd_watch)
     return p
 
 
@@ -1618,7 +1796,8 @@ def main(argv=None):
     _setup_console()
     argv = argv if argv is not None else sys.argv[1:]
     # 简化：允许直接 `ipcheck.py 8.8.8.8`（等价于 check）
-    if argv and argv[0] not in ("check", "myip", "stability", "open", "-h", "--help") and not argv[0].startswith("-"):
+    # 简化：允许直接 `ipcheck.py 8.8.8.8` 或 `ipcheck.py --file x.txt`（等价于 check）
+    if argv and argv[0] not in ("check", "myip", "stability", "open", "watch", "-h", "--help"):
         argv = ["check"] + argv
     p = build_parser()
     if not argv:

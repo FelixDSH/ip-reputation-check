@@ -51,3 +51,13 @@ IP 类型     : VPN
   🔴 易被风控  Binance/交易所        KYC + 地区 + 设备风控极严
   🔴 易被风控  Netflix            封 VPN，需原生住宅
   🟡 谨慎  Spotify            地区限制为主
+服务地区可用性(按 IP 所在国 Japan，近似，以官方为准):
+  ✅ 可用(约)  OpenAI/ChatGPT   需支持地区 + 非机房
+  ✅ 可用(约)  Claude           需支持地区
+  ✅ 可用(约)  Gemini           
+  ✅ 可用(约)  Netflix          地区内容不同，封VPN
+  ✅ 可用(约)  Spotify          
+  ✅ 可用(约)  TikTok           部分地区禁用
+  ✅ 可用(约)  PayPal           
+  ✅ 可用(约)  Binance          美国需 binance.us
+  ✅ 可用(约)  Steam            
