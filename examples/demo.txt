@@ -1,13 +1,12 @@
 ﻿============================================================
-IP 信誉检测报告  8.8.8.8
+IP 信誉检测报告  212.68.185.88
 ============================================================
-位置        : United States Virginia Ashburn   时区 America/New_York
-ASN / 组织  : AS15169 Google LLC
-ISP         : Google LLC
-PTR 主机名  : dns.google
-网络类型    : Business
+位置        : Japan Kanagawa Kawasaki   时区 Asia/Tokyo
+ASN / 组织  : AS58325 Hydra Communications Ltd
+ISP         : Hydra Communications Ltd
+网络类型    : VPN
 ------------------------------------------------------------
-代理 Proxy  : 否    VPN: 否    托管 Hosting: 是
+代理 Proxy  : 是    VPN: 是    托管 Hosting: 否
 移动网络    : 否    Tor: 未知
 ------------------------------------------------------------
 欺诈分(Scamalytics): 0/100  (Low Risk)
@@ -15,9 +14,15 @@ PTR 主机名  : dns.google
 滥用举报(免key)      : StopForumSpam频率:0  blocklist.de攻击:0  IPsum:未命中
 权威滥用源  : Spamhaus:未命中
 ------------------------------------------------------------
-综合判定    : 10/100  🟢 干净 / 低风险
-置信度      : 地理:高  代理:低  VPN:低  托管:高  滥用:低
-备注        : Proxy 源间不一致（proxycheck.io=否, ip-api.com=是），采用 proxycheck.io
+综合判定    : 65/100  🟠 中高风险
+置信度      : 地理:高  代理:高  VPN:低  托管:高  滥用:低
+------------------------------------------------------------
+平台适配度(启发式,非平台真实判定):
+  🔴 易被风控  社交媒体(X/FB/IG/TikTok)  代理, VPN
+  🔴 易被风控  AI工具(OpenAI/Claude/Gemini)  代理, VPN
+  🔴 易被风控  电商/支付(Amazon/PayPal)  代理, VPN
+  🔴 易被风控  流媒体(Netflix/Spotify)  代理, VPN
+  🔴 易被风控  注册/论坛/爬虫  代理, VPN
 ------------------------------------------------------------
 数据源 成功 : ipinfo.io, ip-api.com, ipwho.is, proxycheck.io, scamalytics.com, stopforumspam.com, blocklist.de, IPsum(聚合黑名单), Spamhaus DNSBL, DB-IP
 数据源 跳过 : iphub.info(需人机验证(Turnstile)：配 IPHUB_API_KEY，或运行 scripts/iphub_browser.py <IP>，或设 IPHUB_TURNSTILE_TOKEN（详见 README「人机验证」）), abuseipdb.com(需免费 ABUSEIPDB_API_KEY（网页人工可查，程序化被 Cloudflare 拦，注册免费 1000/天）), VirusTotal(未配置 VIRUSTOTAL_API_KEY（免费注册可查 70+ 引擎）), MaxMind GeoLite2(未配置 MaxMind：运行 scripts/setup_geoip.py --license-key KEY 下载库，或设 GEOIP2_MMDB)

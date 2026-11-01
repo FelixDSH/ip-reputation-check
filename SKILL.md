@@ -96,6 +96,7 @@ python scripts/ipcheck.py check <IP> --gateway http://GATEWAY:8787
 | 滥用置信度 | AbuseIPDB confidence（0–100%，需 key） |
 | 综合判定 | 综合外部分与代理/VPN/Tor 信号计算的 0–100 风险分与等级 |
 | 置信度 | 地理/代理/VPN/托管/滥用 各自的 高/中/低：源等级 × 多源一致度。低=单一源或有冲突；滥用"低"≠干净 |
+| 平台适配度 | 该 IP 对 社媒/AI/电商/流媒体/注册 的可用度（🟢适用/🟡谨慎/🔴易被风控），启发式，非平台真实判定 |
 
 判定等级：`<20 🟢 干净` / `20–49 🟡 中低` / `50–79 🟠 中高` / `≥80 🔴 高`。
 
@@ -112,6 +113,7 @@ python scripts/ipcheck.py check <IP> --gateway http://GATEWAY:8787
 - 判定为"代理/VPN/机房"不等于恶意；很多 CDN（如 Cloudflare、Google DNS）也会被标 hosting。
 - **滥用举报不止 AbuseIPDB**：AbuseIPDB 需免费 key；免 key 的 StopForumSpam / blocklist.de / IPsum / Spamhaus DNSBL 已自动包含并计入风险。想直接看 AbuseIPDB 网页用 `python scripts/ipcheck.py open <IP>`（自动带入 IP）。
 - **不是权威**：本工具是多源聚合初筛，按源等级（A 权威/B 专业/C 社区）和一致度给置信度。汇报时要如实说明置信度，不要把它当风控定论。
+- **平台适配度是启发式**：🟢/🟡/🔴 只是「机房/VPN/代理/滥用/AI地区限制」等信号的加权初筛，不代表平台真实判定；各平台策略随时变。
 
 ## 作为 skill 安装
 

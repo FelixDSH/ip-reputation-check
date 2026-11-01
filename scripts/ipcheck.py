@@ -82,6 +82,22 @@ CLOUD_HINTS = ("amazon", "aws", "google", "microsoft", "azure", "digitalocean",
                "choopa", "contabo", "hosting", "datacenter", "data center",
                "server", "colo")
 
+# 平台适配度：各信号对不同平台类别的风险权重（启发式，非平台真实判定）
+PLATFORM_PROFILES = {
+    "社交媒体(X/FB/IG/TikTok)": {"hosting": 45, "proxy": 45, "vpn": 45, "tor": 85,
+                               "mobile": -20, "abuse": 30},
+    "AI工具(OpenAI/Claude/Gemini)": {"hosting": 55, "proxy": 55, "vpn": 55, "tor": 85,
+                                    "mobile": -10, "abuse": 30, "country_restricted": 95},
+    "电商/支付(Amazon/PayPal)": {"hosting": 60, "proxy": 60, "vpn": 60, "tor": 90,
+                              "mobile": -10, "abuse": 40},
+    "流媒体(Netflix/Spotify)": {"hosting": 40, "proxy": 35, "vpn": 40, "tor": 80,
+                             "mobile": -15, "abuse": 20},
+    "注册/论坛/爬虫": {"hosting": 45, "proxy": 50, "vpn": 50, "tor": 85,
+                   "mobile": -15, "abuse": 35},
+}
+# 常被主流 AI 服务限制的国家/地区（以平台最新政策为准，仅作提示）
+AI_RESTRICTED = {"CN", "RU", "IR", "KP", "SY", "CU", "BY", "VE", "MM"}
+
 
 # --------------------------------------------------------------------------- #
 # HTTP 基础
@@ -681,6 +697,49 @@ def _conf_cat(votes):
     return {"level": lvl, "n": n, "value": val}
 
 
+def _platform_level(score):
+    if score < 25:
+        return "low", "🟢 适用"
+    if score < 55:
+        return "medium", "🟡 谨慎"
+    return "high", "🔴 易被风控"
+
+
+def _platform_fit(flags, geo, net, scores):
+    """基于 IP 画像给各平台类别的「可用度风险」启发式评分。"""
+    abuse_hit = bool(scores.get("spamhaus_listed")) or \
+        (scores.get("vt_malicious") or 0) > 0 or \
+        (scores.get("abuse_confidence") or 0) >= 25 or bool(scores.get("ipsum_listed"))
+    cc = (geo.get("country_code") or "").upper()
+    asn_low = (net.get("asn_org") or "").lower()
+    hosting = flags.get("hosting") if flags.get("hosting") is not None else any(k in asn_low for k in CLOUD_HINTS)
+    out = []
+    for cat, w in PLATFORM_PROFILES.items():
+        score = 0
+        reasons = []
+        if hosting:
+            score += w.get("hosting", 0); reasons.append("机房/托管")
+        if flags.get("proxy"):
+            score += w.get("proxy", 0); reasons.append("代理")
+        if flags.get("vpn"):
+            score += w.get("vpn", 0); reasons.append("VPN")
+        if flags.get("tor"):
+            score += w.get("tor", 0); reasons.append("Tor")
+        if flags.get("mobile"):
+            score += w.get("mobile", 0); reasons.append("移动网络(较优)")
+        if abuse_hit:
+            score += w.get("abuse", 0); reasons.append("有滥用记录")
+        if "AI" in cat and cc in AI_RESTRICTED:
+            score += w.get("country_restricted", 0); reasons.append("所在国可能不在支持地区(%s)" % cc)
+        score = max(0, min(100, score))
+        lvl, label = _platform_level(score)
+        if not reasons:
+            reasons.append("住宅/普通网络，风险低")
+        out.append({"category": cat, "score": score, "level": lvl,
+                    "label": label, "reason": ", ".join(reasons)})
+    return out
+
+
 def aggregate(ip, results):
     get = {r["source"]: r for r in results}
     srcs = {name: (get[name]["data"] if get.get(name) and get[name]["ok"] else {})
@@ -785,6 +844,12 @@ def aggregate(ip, results):
         "abuse": conf_abuse,
     }
 
+    platform_fit = _platform_fit(
+        {"proxy": proxy, "vpn": vpn, "hosting": hosting, "mobile": mobile, "tor": tor},
+        geo, {"asn_org": asn_org},
+        {"spamhaus_listed": spamhaus_listed, "vt_malicious": vt_mal,
+         "abuse_confidence": abuse_conf, "ipsum_listed": ipsum_listed})
+
     return {
         "ip": ip,
         "geo": geo,
@@ -804,6 +869,7 @@ def aggregate(ip, results):
         "verdict": {"risk_score": risk_score, "risk_level": risk_level,
                     "label": risk_label(risk_level)},
         "confidence": confidence,
+        "platform_fit": platform_fit,
         "conflicts": conflicts,
         "sources": results,
     }
@@ -995,6 +1061,12 @@ def render_report(agg, color=True):
     for note in agg.get("conflicts", []):
         lines.append(c.dim("备注        : " + note))
     lines.append("-" * 60)
+    pf = agg.get("platform_fit") or []
+    if pf:
+        lines.append("平台适配度(启发式,非平台真实判定):")
+        for item in pf:
+            lines.append("  %s  %s  %s" % (item["label"], item["category"], item["reason"]))
+        lines.append("-" * 60)
     ok = [SOURCE_LABEL[r["source"]] for r in agg["sources"] if r["ok"]]
     bad = [SOURCE_LABEL[r["source"]] + "(" + (r["error"] or "失败") + ")"
            for r in agg["sources"] if not r["ok"]]
