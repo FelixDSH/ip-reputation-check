@@ -237,9 +237,12 @@ class TestP1Evidence(unittest.TestCase):
         self.assertEqual(d["prefix"], "8.8.8.0/24")
 
     def test_tor_official_list(self):
-        with mock.patch.object(S, "_load_tor", lambda timeout: {"1.2.3.4"}):
+        import time as _t
+        def fake(timeout, refresh=False):
+            return {"1.2.3.4"}, _t.time()
+        with mock.patch.object(S, "_load_tor", fake):
             self.assertTrue(ic.src_tor_exit("1.2.3.4", 5)["is_tor"])
-        with mock.patch.object(S, "_load_tor", lambda timeout: {"1.2.3.4"}):
+        with mock.patch.object(S, "_load_tor", fake):
             self.assertFalse(ic.src_tor_exit("9.9.9.9", 5)["is_tor"])
 
     def test_conf_exposes_support_oppose(self):

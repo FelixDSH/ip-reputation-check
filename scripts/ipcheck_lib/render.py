@@ -226,6 +226,20 @@ def render_report(agg, color=True):
         if cs.get("expired_refresh_failed"):
             parts.append("%d 项过期且刷新失败" % cs["expired_refresh_failed"])
         lines.append("缓存        : " + "；".join(parts))
+    stale = agg.get("stale_sources") or []
+    if stale:
+        def _d(sec):
+            if sec is None:
+                return "?"
+            if sec >= 86400:
+                return "%d天" % (sec // 86400)
+            if sec >= 3600:
+                return "%d小时" % (sec // 3600)
+            return "%d分" % (sec // 60)
+        lines.append("⚠️ 过期证据(参与判断): " + ", ".join(
+            "%s(取于%s,已过期%s)" % (SOURCE_LABEL.get(s["source"], s["source"]),
+                                   s.get("fetched_at") or "?", _d(s.get("stale_seconds")))
+            for s in stale))
     lines.append(c.dim("ℹ️ 多源规则初筛，非概率、非实测；“干净/风险”仅表示证据倾向，不等于安全结论。"))
     lines.append(c.b("=" * 60))
     return "\n".join(lines)

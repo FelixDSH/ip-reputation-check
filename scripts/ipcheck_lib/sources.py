@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # 由 tools/make_pkg.py 从 ipcheck.py 自动拆分生成，请勿手改结构注释。
 import argparse
 import concurrent.futures as cf
@@ -230,23 +230,30 @@ _IPSUM_TS = 0.0
 
 _IPSUM_TTL = 12 * 3600
 
-def _load_ipsum(timeout):
-    """下载并缓存 IPsum 聚合黑名单（ip -> 命中次数）。12h 缓存。"""
+def _iso(ts):
+    return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(ts))
+
+
+def _load_ipsum(timeout, refresh=False):
+    """下载并缓存 IPsum 名单。返回 (data, 名单实际取得时间ts)。refresh=True 强制重取名单。"""
     global _IPSUM_DATA, _IPSUM_TS
     now = time.time()
-    if _IPSUM_DATA is not None and now - _IPSUM_TS < _IPSUM_TTL:
-        return _IPSUM_DATA
+    if not refresh and _IPSUM_DATA is not None and now - _IPSUM_TS < _IPSUM_TTL:
+        return _IPSUM_DATA, _IPSUM_TS
     cache = os.path.join(tempfile.gettempdir(), "ipcheck_ipsum.txt")
     text = None
-    if os.path.exists(cache) and now - os.path.getmtime(cache) < _IPSUM_TTL:
+    ts = None
+    if not refresh and os.path.exists(cache) and now - os.path.getmtime(cache) < _IPSUM_TTL:
         try:
             with open(cache, "r", encoding="utf-8") as f:
                 text = f.read()
+            ts = os.path.getmtime(cache)
         except Exception:
             text = None
     if text is None:
         _, text = http_get("https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt",
                            timeout=max(timeout, 30))
+        ts = now
         try:
             with open(cache, "w", encoding="utf-8") as f:
                 f.write(text)
@@ -262,15 +269,16 @@ def _load_ipsum(timeout):
                 data[parts[0]] = int(parts[1])
             except ValueError:
                 continue
-    _IPSUM_DATA, _IPSUM_TS = data, now
-    return data
+    _IPSUM_DATA, _IPSUM_TS = data, ts
+    return data, ts
 
-def src_ipsum(ip, timeout):
-    """免 key：IPsum 聚合黑名单是否命中及命中条数。"""
-    data = _load_ipsum(timeout)
+
+def src_ipsum(ip, timeout, refresh=False):
+    """免 key：IPsum 聚合黑名单是否命中及命中条数（回传名单实际取得时间）。"""
+    data, ts = _load_ipsum(timeout, refresh)
     score = data.get(ip)
-    return {"listed": score is not None, "score": score or 0,
-            "total_ips": len(data)}
+    return {"listed": score is not None, "score": score or 0, "total_ips": len(data),
+            "list_fetched_at": _iso(ts), "from_list_cache": (time.time() - ts) > 5}
 
 def _dns_query_a(name, timeout):
     """在独立线程里做 DNS A 查询并限时等待，避免改全局 socket 超时（线程安全）。"""
@@ -472,21 +480,22 @@ _TOR_TS = 0.0
 _TOR_TTL = 12 * 3600
 
 
-def _load_tor(timeout):
+def _load_tor(timeout, refresh=False):
     global _TOR_DATA, _TOR_TS
     now = time.time()
-    if _TOR_DATA is not None and now - _TOR_TS < _TOR_TTL:
-        return _TOR_DATA
+    if not refresh and _TOR_DATA is not None and now - _TOR_TS < _TOR_TTL:
+        return _TOR_DATA, _TOR_TS
     _, txt = http_get("https://check.torproject.org/torbulkexitlist", timeout=max(timeout, 20))
     s = set(l.strip() for l in txt.splitlines() if l.strip() and not l.startswith("#"))
     _TOR_DATA, _TOR_TS = s, now
-    return s
+    return s, now
 
 
-def src_tor_exit(ip, timeout):
+def src_tor_exit(ip, timeout, refresh=False):
     """免 key：Tor 官方出口名单（某时点）。未命中≠不是任何代理。"""
-    s = _load_tor(timeout)
-    return {"is_tor": ip in s, "total": len(s)}
+    s, ts = _load_tor(timeout, refresh)
+    return {"is_tor": ip in s, "total": len(s),
+            "list_fetched_at": _iso(ts), "from_list_cache": (time.time() - ts) > 5}
 
 
 SOURCES = {
@@ -516,4 +525,5 @@ def set_only_sources(names):
 
 
 
-__all__ = ['ALL_SOURCES', 'src_ipinfo', 'src_ipapi', 'src_ipwhois', 'src_proxycheck', 'src_scamalytics', 'src_iphub', 'src_abuseipdb', 'src_stopforumspam', 'src_blocklistde', '_IPSUM_LOCK', '_IPSUM_DATA', '_IPSUM_TS', '_IPSUM_TTL', '_load_ipsum', 'src_ipsum', '_dns_query_a', 'src_spamhaus', 'src_virustotal', 'src_dbip', '_MMDB_CACHE', '_ascii_path', '_maxmind_path', 'src_maxmind', 'src_rdap', 'src_ripe_bgp', '_TOR_DATA', '_TOR_TS', '_TOR_TTL', '_load_tor', 'src_tor_exit', 'SOURCES', 'set_only_sources']
+__all__ = ['ALL_SOURCES', 'src_ipinfo', 'src_ipapi', 'src_ipwhois', 'src_proxycheck', 'src_scamalytics', 'src_iphub', 'src_abuseipdb', 'src_stopforumspam', 'src_blocklistde', '_IPSUM_LOCK', '_IPSUM_DATA', '_IPSUM_TS', '_IPSUM_TTL', '_load_ipsum', 'src_ipsum', '_dns_query_a', 'src_spamhaus', 'src_virustotal', 'src_dbip', '_MMDB_CACHE', '_ascii_path', '_maxmind_path', 'src_maxmind', 'src_rdap', 'src_ripe_bgp', '_TOR_DATA', '_TOR_TS', '_TOR_TTL', '_load_tor', 'src_tor_exit', '_iso', 'SOURCES', 'set_only_sources']
+

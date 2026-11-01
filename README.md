@@ -52,7 +52,7 @@ tests/  (test_core.py, test_consistency.py)
 python tests/test_core.py            # 核心逻辑单测
 python tests/test_counterexamples.py # 之前审计反例的硬性回归（空数据/仅地理/仅RDAP/空字段/DNS临时失败/探针误判/JSON）
 python tests/test_fixtures.py        # 固定响应快照解析回归
-python tests/test_cache.py           # 来源级缓存/时间元数据（有效/过期/刷新失败/版本/IPv6/损坏/无密钥）
+python tests/test_cache.py           # 来源级缓存/时间元数据（命中/自然过期后刷新/刷新穿透名单缓存/超期不参与/条目校验/IPv6/损坏/无密钥，14 项）
 python tests/test_consistency.py     # 10 种 IP 类型 × 文案自洽性
 python scripts/ipcheck.py health      # 源健康检查
 ```
@@ -551,8 +551,10 @@ python scripts/ipcheck.py history --node direct --scenario ai
 
 按来源缓存原始结果（**不缓存最终判断**，升级规则后会重新聚合，不会复用旧"干净/住宅"结论）。缓存键 = 解析器版本 + 来源 + 规范化 IP（IPv6 等价写法归一）；代理凭据/Key 不入缓存。
 
-- 时间字段：`fetched_at`（取得时间，读缓存不改写）、`data_time`（上游数据时间，未知为 null）、`expires_at`、`served_at`、`cache_status`（fresh/valid/expired_refresh_failed/none）。
-- 行为：有效缓存直接用（报告标"缓存"）；过期先刷新；刷新失败可展示旧数据但标"过期"；首次失败不生成"有效未命中"；`--refresh` 强制重查。
+- 时间字段：`fetched_at`（取得时间，读缓存不改写）、`data_time`（上游数据时间，未知为 null）、`expires_at`、`served_at`、`cache_status`（fresh/valid/expired_refresh_failed/expired_too_old/none）。
+- 行为：有效缓存直接用（报告标"缓存"）；过期先刷新；刷新失败在**允许回退期内**可用但标"过期"并在报告列出"依赖过期证据"；**超过允许回退期→仅历史、不参与判断**（`ok=false`）；首次失败不生成"有效未命中"；`--refresh` 强制重查且**穿透名单级内部缓存**。
+- 名单类来源（IPsum/Tor）用"名单实际取得时间"作为 `data_time`/`fetched_at`，不会把"重新读本地名单"写成"刚从上游取得"。
+- 条目校验：非 dict / data 非 dict / 时间字段类型错 → 忽略并重查（安全降级）。
 - 目的：省额度/提速/失败兜底，**不是"提升准确率"**。
 
 ## 风险判定模型

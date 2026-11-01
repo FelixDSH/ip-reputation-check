@@ -427,6 +427,10 @@ def aggregate(ip, results):
             # 证据不充分 → 不生成平台"绿色"建议
             platform_fit, platforms, decisions = [], [], []
 
+    stale_sources = [{"source": r["source"], "fetched_at": r.get("query_time"),
+                      "stale_seconds": r.get("stale_seconds")}
+                     for r in results if r.get("cache_status") == "expired_refresh_failed"]
+
     return {
         "ip": ip,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -462,6 +466,7 @@ def aggregate(ip, results):
         "verdict": {"risk_score": risk_score, "risk_level": risk_level,
                     "label": risk_label(risk_level)},
         "confidence": confidence,
+        "stale_sources": stale_sources,
         "platform_fit": platform_fit,
         "platforms": platforms,
         "decisions": decisions,
