@@ -25,6 +25,13 @@ python scripts/ipcheck.py 8.8.8.8 --brief    # 一行式简报
 | iphub：代理类型细分（住宅/机房/住宅代理） | 免费 `IPHUB_API_KEY`；或本机跑 `scripts/iphub_browser.py` 人工过验证 |
 | abuseipdb：滥用置信度 | 免费 `ABUSEIPDB_API_KEY`；或 `ipcheck.py open <IP>` 打开网页人工看（网页免 key） |
 
+## 自检 / 测试
+
+```bash
+python tests/test_consistency.py
+```
+校验 10 种 IP 类型的「平台适配度 / 使用建议 / 平台可用度」文案自洽性，防止「企业网络被写成住宅」「类型不确定」这类文案回归 bug。GitHub Actions（`.github/workflows/ci.yml`）已配置为每次 push 自动跑。
+
 ## 环境要求（用户要装什么？）
 
 **基础检测的唯一硬性依赖是 Python 3.8+，而且不用 `pip` 装任何第三方库**（全部标准库）。不需要 Node、不需要浏览器。
