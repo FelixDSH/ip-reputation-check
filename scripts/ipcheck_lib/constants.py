@@ -108,7 +108,7 @@ SOURCE_TIER = {
 
 TIER_WEIGHT = {"A": 3, "B": 2, "C": 1}
 
-DECISION_LABEL = {"ok": "✅ 推荐", "warn": "⚠️ 谨慎", "no": "⛔ 不建议"}
+DECISION_LABEL = {"ok": "✅ 较适合", "warn": "⚠️ 谨慎", "no": "⛔ 风险高"}
 
 
 __all__ = ['UA', 'VERSION', 'DEFAULT_TIMEOUT', 'RISK_W_PROXY', 'RISK_W_VPN', 'RISK_W_HOSTING', 'RISK_W_TOR', 'RISK_W_MOBILE', 'RISK_T_CLEAN', 'RISK_T_LOW', 'RISK_T_MEDIUM', 'CLOUD_HINTS', 'PLATFORM_PROFILES', 'AI_RESTRICTED', 'PLATFORMS', 'SERVICE_REGIONS', 'SOURCE_LABEL', 'SOURCE_TIER', 'TIER_WEIGHT', 'DECISION_LABEL']

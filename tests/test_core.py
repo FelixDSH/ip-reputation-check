@@ -208,5 +208,37 @@ class TestCsv(unittest.TestCase):
         self.assertIn("'@x", lines[1])
 
 
+class TestP0Guards(unittest.TestCase):
+    def test_private_ip_skips_public_query(self):
+        agg = ic.check_ip("10.0.0.1")
+        self.assertIn("本地", agg["ip_type"])
+        self.assertEqual(agg["verdict"]["risk_level"], "unknown")
+        self.assertEqual(agg["sources"], [])
+
+    def test_spamhaus_pbl_is_not_malicious(self):
+        with mock.patch.object(S, "_dns_query_a", lambda *a, **k: "127.0.0.4"):
+            d = ic.src_spamhaus("1.2.3.4", 5)
+        self.assertTrue(d["listed"])
+        self.assertFalse(d["malicious"])
+        self.assertTrue(d["policy"])
+
+    def test_spamhaus_sbl_is_malicious(self):
+        with mock.patch.object(S, "_dns_query_a", lambda *a, **k: "127.0.0.2"):
+            d = ic.src_spamhaus("1.2.3.4", 5)
+        self.assertTrue(d["malicious"])
+
+    def test_vote_value_equals_confidence_value(self):
+        # 主结论值与置信度值必须一致（统一判决）
+        votes = [("proxycheck", True), ("iphub", False), ("ipapi", False)]
+        conf = ic._conf_bool(votes)
+        val = ic._vote([], "P", votes)
+        self.assertEqual(val, conf["value"])
+
+    def test_local_verdict_unknown_label(self):
+        agg = ic._local_agg("192.168.1.1")
+        self.assertIsNone(agg["verdict"]["risk_score"])
+        self.assertEqual(agg["verdict"]["risk_level"], "unknown")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

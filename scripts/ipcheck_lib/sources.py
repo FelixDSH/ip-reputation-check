@@ -314,14 +314,21 @@ def src_spamhaus(ip, timeout):
     # 说明 DNS 被本地代理接管 → 结果不可信，必须报错而不是当成“未命中”。
     if not ans.startswith("127.0.0."):
         raise RuntimeError("DNS 返回异常(%s)，疑似 Fake-IP/本地代理 DNS，Spamhaus 结果不可信" % ans)
-    code_map = {
-        "127.0.0.2": "SBL", "127.0.0.3": "XBL/CSS", "127.0.0.4": "PBL",
-        "127.0.0.5": "PBL", "127.0.0.6": "PBL", "127.0.0.7": "PBL",
-        "127.0.0.9": "DROP", "127.0.0.10": "PBL", "127.0.0.11": "PBL",
-    }
-    zones = [code_map[ans]] if ans in code_map else []
-    listed = True
-    return {"listed": listed, "zones": zones, "answer": ans}
+    # 名单语义区分：SBL/XBL(CSS)/DROP = 实际垃圾邮件/被入侵/攻击源（恶意）；
+    # PBL = 发信策略名单（住宅网络常因不应直发邮件而入列，与网页/账号安全无关，不应判为恶意）。
+    malicious_codes = {"127.0.0.2": "SBL", "127.0.0.3": "XBL/CSS", "127.0.0.9": "DROP"}
+    policy_codes = {"127.0.0.4": "PBL", "127.0.0.5": "PBL", "127.0.0.6": "PBL",
+                    "127.0.0.7": "PBL", "127.0.0.10": "PBL", "127.0.0.11": "PBL"}
+    zones = []
+    malicious = policy = False
+    if ans in malicious_codes:
+        zones = [malicious_codes[ans]]; malicious = True
+    elif ans in policy_codes:
+        zones = [policy_codes[ans]]; policy = True
+    else:
+        zones = ["UNKNOWN"]
+    return {"listed": True, "zones": zones, "malicious": malicious,
+            "policy": policy, "answer": ans}
 
 def src_virustotal(ip, timeout):
     """可选 key：VirusTotal 70+ 引擎聚合判定（免费 key 限速 4/分）。"""

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # 由 tools/make_pkg.py 从 ipcheck.py 自动拆分生成，请勿手改结构注释。
 import argparse
 import concurrent.futures as cf
@@ -48,14 +48,17 @@ def _coherent_geo(sources):
     }
 
 def _vote(conflicts, flag_name, votes):
-    """votes=[(source, value)]；按给定顺序取第一个已知值，并记录源间冲突。"""
+    """布尔结论。与 _conf_bool 共用同一「源等级加权多数」判决，保证值=置信度值（不再主结论/置信度打架）。"""
     known = [(s, v) for s, v in votes if v is not None]
     if not known:
         return None
-    val = known[0][1]
+    c = _conf_bool(votes)
+    val = c["value"]
     if any(v != val for _, v in known):
         detail = ", ".join("%s=%s" % (SOURCE_LABEL.get(s, s), ("是" if v else "否")) for s, v in known)
-        conflicts.append("%s 源间不一致（%s），采用 %s" % (flag_name, detail, SOURCE_LABEL.get(known[0][0], known[0][0])))
+        lvl_cn = {"high": "高", "medium": "中", "low": "低", "unknown": "未知"}.get(c.get("level"), "?")
+        conflicts.append("%s 源间不一致（%s），按加权多数采用「%s」（置信度:%s）"
+                         % (flag_name, detail, "是" if val else "否", lvl_cn))
     return val
 
 def _conf_bool(votes):
@@ -103,14 +106,14 @@ def _conf_cat(votes):
 
 def _platform_level(score):
     if score < 25:
-        return "low", "🟢 适用"
+        return "low", "🟢 较适合(推测)"
     if score < 55:
         return "medium", "🟡 谨慎"
-    return "high", "🔴 易被风控"
+    return "high", "🔴 易触发风控"
 
 def _platform_fit(flags, geo, net, scores, ip_type=""):
     """基于 IP 画像给各平台类别的「可用度风险」启发式评分。"""
-    abuse_hit = bool(scores.get("spamhaus_listed")) or \
+    abuse_hit = bool(scores.get("spamhaus_malicious")) or \
         (scores.get("vt_malicious") or 0) > 0 or \
         (scores.get("abuse_confidence") or 0) >= 25 or bool(scores.get("ipsum_listed"))
     cc = (geo.get("country_code") or "").upper()
@@ -158,7 +161,7 @@ def _type_reason(ip_type):
     return "普通网络(类型未细分)"
 
 def _abuse_hit(scores):
-    return bool(scores.get("spamhaus_listed")) or \
+    return bool(scores.get("spamhaus_malicious")) or \
         (scores.get("vt_malicious") or 0) > 0 or \
         (scores.get("abuse_confidence") or 0) >= 25 or bool(scores.get("ipsum_listed"))
 
@@ -212,7 +215,7 @@ def compute_decisions(ip_type, flags, scores, geo):
 
     # 电商/支付
     if datacenter or anon or abuse:
-        add("电商/支付", "no", "风控最严，机房/代理/滥用 IP 基本不可用")
+        add("电商/支付", "no", "风控最严，机房/代理/滥用 IP 通常不可用(规则推算)")
     else:
         add("电商/支付", "warn", "住宅/企业 IP 可试，但支付类仍需 KYC 与行为验证")
 
@@ -300,6 +303,8 @@ def aggregate(ip, results):
     spamhaus_ok = bool(get.get("spamhaus") and get["spamhaus"]["ok"])
     vt_ok = bool(get.get("virustotal") and get["virustotal"]["ok"])
     spamhaus_listed = bool(spamhaus.get("listed")) if spamhaus_ok else None
+    spamhaus_malicious = bool(spamhaus.get("malicious")) if spamhaus_ok else None
+    spamhaus_policy = bool(spamhaus.get("policy")) if spamhaus_ok else None
     vt_mal = _to_int(vt.get("malicious")) if vt_ok else None
 
     # 免 key 举报类渠道汇总
@@ -319,7 +324,7 @@ def aggregate(ip, results):
     cands = []
     if abuse_conf is not None:
         cands.append(abuse_conf)
-    if spamhaus_listed:
+    if spamhaus_malicious:
         cands.append(90)
     if vt_mal:
         cands.append(min(100, 30 + vt_mal * 10))
@@ -337,7 +342,7 @@ def aggregate(ip, results):
         ("ipwhois", ipwho.get("country_code")),
         ("proxycheck", proxycheck.get("country_code")),
     ]
-    if spamhaus_listed or (vt_mal and vt_mal > 0):
+    if spamhaus_malicious or (vt_mal and vt_mal > 0):
         conf_abuse = {"level": "high", "note": "权威源命中"}
     elif (abuse_conf and abuse_conf > 0) or (sfs_freq and sfs_freq > 0) or \
             (bl_attacks and bl_attacks > 0) or ipsum_listed:
@@ -355,7 +360,7 @@ def aggregate(ip, results):
     }
 
     flags_view = {"proxy": proxy, "vpn": vpn, "hosting": hosting, "mobile": mobile, "tor": tor}
-    scores_view = {"spamhaus_listed": spamhaus_listed, "vt_malicious": vt_mal,
+    scores_view = {"spamhaus_malicious": spamhaus_malicious, "vt_malicious": vt_mal,
                    "abuse_confidence": abuse_conf, "ipsum_listed": ipsum_listed}
     net_view = {"asn_org": asn_org}
     platform_fit = _platform_fit(flags_view, geo, net_view, scores_view, ip_type)
@@ -389,6 +394,7 @@ def aggregate(ip, results):
                    "sfs_frequency": sfs_freq, "bl_attacks": bl_attacks,
                    "ipsum_listed": ipsum_listed, "ipsum_score": ipsum_score,
                    "spamhaus_listed": spamhaus_listed, "spamhaus_zones": spamhaus.get("zones"),
+                   "spamhaus_malicious": spamhaus_malicious, "spamhaus_policy": spamhaus_policy,
                    "vt_malicious": vt_mal, "vt_reputation": vt.get("reputation")},
         "verdict": {"risk_score": risk_score, "risk_level": risk_level,
                     "label": risk_label(risk_level)},
@@ -475,7 +481,36 @@ def risk_label(level):
         "unknown": "\u26AA 数据不足 / 无法判定",
     }.get(level, level)
 
+def _local_agg(ip):
+    """私有/环回/保留/CGNAT 等非公网地址：不向公共信誉接口发送，直接本地判定。"""
+    geo = {"country": None, "country_code": None, "region": None, "city": None,
+           "lat": None, "lon": None, "timezone": None, "geo_source": None}
+    conf = {k: {"level": "unknown", "n": 0} for k in ("geo", "proxy", "vpn", "hosting")}
+    conf["abuse"] = {"level": "unknown", "note": "本地/保留地址，无需公网查询"}
+    return {
+        "ip": ip, "ip_type": "私有/保留地址（本地）", "geo": geo,
+        "network": {"asn_org": None, "isp": None, "hostname": None, "usage_type": None, "type": None},
+        "flags": {"proxy": None, "vpn": None, "hosting": None, "mobile": None,
+                  "tor": None, "residential_proxy": None},
+        "scores": {k: None for k in (
+            "fraud_score", "fraud_risk", "abuse_confidence", "abuse_reports", "proxycheck_risk",
+            "iphub_block", "sfs_frequency", "bl_attacks", "ipsum_listed", "ipsum_score",
+            "spamhaus_listed", "spamhaus_zones", "spamhaus_malicious", "spamhaus_policy",
+            "vt_malicious", "vt_reputation")},
+        "verdict": {"risk_score": None, "risk_level": "unknown", "label": "⚪ 本地/保留地址，跳过公网查询"},
+        "confidence": conf, "platform_fit": [], "platforms": [], "decisions": [],
+        "conflicts": [], "sources": [],
+    }
+
+
 def check_ip(ip, only=None, timeout=DEFAULT_TIMEOUT):
+    # 非公网地址（私网/环回/保留/CGNAT）不发外网查询
+    try:
+        from ipaddress import ip_address as _ipa
+        if not _ipa(ip).is_global:
+            return _local_agg(ip)
+    except ValueError:
+        pass
     names = [s for s in (only or _sources.ALL_SOURCES) if s in _sources.SOURCES]
     results = []
     with cf.ThreadPoolExecutor(max_workers=len(names)) as ex:
@@ -484,7 +519,10 @@ def check_ip(ip, only=None, timeout=DEFAULT_TIMEOUT):
             n = futs[fut]
             try:
                 d = fut.result()
-                results.append({"source": n, "ok": True, "data": d, "error": None})
+                if not d:  # 空响应 / 无有效字段 ≠ 成功
+                    results.append({"source": n, "ok": False, "data": {}, "error": "空响应/无有效字段"})
+                else:
+                    results.append({"source": n, "ok": True, "data": d, "error": None})
             except Exception as e:  # noqa: BLE001
                 results.append({"source": n, "ok": False, "data": {}, "error": str(e)})
     # 保持稳定顺序
@@ -493,4 +531,6 @@ def check_ip(ip, only=None, timeout=DEFAULT_TIMEOUT):
     return aggregate(ip, results)
 
 
-__all__ = ['_coherent_geo', '_vote', '_conf_bool', '_conf_cat', '_platform_level', '_platform_fit', '_type_reason', '_abuse_hit', 'compute_decisions', 'compute_platforms', 'aggregate', '_pick_bool', '_hosting_from_org', 'classify_ip_type', 'compute_risk', 'risk_label', 'check_ip']
+__all__ = ['_coherent_geo', '_vote', '_conf_bool', '_conf_cat', '_platform_level', '_platform_fit', '_type_reason', '_abuse_hit', 'compute_decisions', 'compute_platforms', 'aggregate', '_pick_bool', '_hosting_from_org', 'classify_ip_type', 'compute_risk', 'risk_label', 'check_ip', '_local_agg']
+
+

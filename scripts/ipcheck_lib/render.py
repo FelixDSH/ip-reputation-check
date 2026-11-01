@@ -141,10 +141,12 @@ def render_report(agg, color=True):
         free.append("IPsum:" + ("命中(%s条)" % sc.get("ipsum_score") if sc.get("ipsum_listed") else "未命中"))
     lines.append("滥用举报(免key)      : " + ("  ".join(free) if free else "—"))
     auth = []
-    if sc.get("spamhaus_listed") is not None:
-        if sc.get("spamhaus_listed"):
-            z = sc.get("spamhaus_zones") or []
-            auth.append("Spamhaus:命中" + (("(%s)" % "/".join(z)) if z else ""))
+    if sc.get("spamhaus_malicious") is not None:
+        z = sc.get("spamhaus_zones") or []
+        if sc.get("spamhaus_malicious"):
+            auth.append("Spamhaus:恶意名单命中" + (("(%s)" % "/".join(z)) if z else ""))
+        elif sc.get("spamhaus_policy"):
+            auth.append("Spamhaus:仅策略名单(PBL,发信策略,非恶意行为)")
         else:
             auth.append("Spamhaus:未命中")
     if sc.get("vt_malicious") is not None:
@@ -154,7 +156,7 @@ def render_report(agg, color=True):
     lines.append("-" * 60)
     rs = vd.get("risk_score")
     verdict = ("%d/100  %s" % (rs, vd["label"])) if rs is not None else vd["label"]
-    lines.append("综合判定    : " + _color_level(c, vd["risk_level"], verdict))
+    lines.append("规则提示分  : " + _color_level(c, vd["risk_level"], verdict) + c.dim("  (经验规则分,非概率)"))
     conf = agg.get("confidence") or {}
 
     def _cl(k):
@@ -183,6 +185,7 @@ def render_report(agg, color=True):
     lines.append("数据源 成功 : " + (", ".join(ok) if ok else "无"))
     if bad:
         lines.append("数据源 跳过 : " + ", ".join(bad))
+    lines.append(c.dim("ℹ️ 多源规则初筛，非概率、非实测；“干净/风险”仅表示证据倾向，不等于安全结论。"))
     lines.append(c.b("=" * 60))
     return "\n".join(lines)
 
