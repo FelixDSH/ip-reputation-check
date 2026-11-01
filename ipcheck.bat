@@ -1,5 +1,5 @@
 @echo off
-rem Windows 便捷入口：优先用打包好的 exe，否则回退到 python 脚本
+rem ipcheck wrapper: use packed exe if present, else fall back to python script
 setlocal
 set "DIR=%~dp0"
 if exist "%DIR%dist\ipcheck.exe" (
