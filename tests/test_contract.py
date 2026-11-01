@@ -22,6 +22,14 @@ spec = importlib.util.spec_from_file_location("ic", os.path.join(ROOT, "scripts"
 ic = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ic)
 import ipcheck_lib.sources as S  # noqa: E402
+import ipcheck_lib.probe as P  # noqa: E402
+
+FIX = os.path.join(ROOT, "scripts", "ipcheck_lib", "fixtures", "abnormal")
+
+
+def load(name):
+    with open(os.path.join(FIX, name), encoding="utf-8") as f:
+        return f.read()
 
 
 def fake(text):
@@ -60,6 +68,21 @@ class TestScamalyticsContract(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             ic.parse_scamalytics_html("", "1.2.3.4")
 
+    # 真实形态 fixture
+    def test_fixture_captcha(self):
+        with self.assertRaises(RuntimeError):
+            ic.parse_scamalytics_html(load("scamalytics_captcha.html"), "1.2.3.4")
+
+    def test_fixture_softblock_200(self):
+        # HTTP 200 但软封/地区页，即使含 "Fraud Score: 0" 诱饵，也必须拒绝
+        with self.assertRaises(RuntimeError):
+            ic.parse_scamalytics_html(load("scamalytics_softblock_200.html"), "1.2.3.4")
+
+    def test_fixture_valid_full_still_parses(self):
+        d = ic.parse_scamalytics_html(load("scamalytics_valid_full.html"), "8.8.8.8")
+        self.assertEqual(d["fraud_score"], 0)
+        self.assertEqual(d["risk"], "Low")
+
 
 class TestListContract(unittest.TestCase):
     def test_tor_html_page_rejected(self):
@@ -97,11 +120,21 @@ class TestListContract(unittest.TestCase):
         old = S._IPSUM_DATA
         S._IPSUM_DATA = None
         try:
-            with mock.patch.object(S, "http_get", fake("<html>oops</html>")):
+            with mock.patch.object(S, "http_get", fake(load("ipsum_error.html"))):
                 with self.assertRaises(RuntimeError):
                     S._load_ipsum(5, refresh=True)
         finally:
             S._IPSUM_DATA = old
+
+    def test_tor_error_fixture_rejected(self):
+        old = S._TOR_DATA
+        S._TOR_DATA = None
+        try:
+            with mock.patch.object(S, "http_get", fake(load("tor_error.html"))):
+                with self.assertRaises(RuntimeError):
+                    S._load_tor(5, refresh=True)
+        finally:
+            S._TOR_DATA = old
 
     def test_ipsum_valid(self):
         old = S._IPSUM_DATA
@@ -112,6 +145,16 @@ class TestListContract(unittest.TestCase):
             self.assertEqual(d.get("1.2.3.4"), 5)
         finally:
             S._IPSUM_DATA = old
+
+
+class TestProbeSoftblock(unittest.TestCase):
+    def test_200_softblock_region_is_not_success(self):
+        # HTTP 200 + 地区软封文案，不能判"连接成功"
+        self.assertEqual(P.classify(200, "This service is not available in your region"),
+                         "明确地区限制")
+
+    def test_200_challenge_is_human_verification(self):
+        self.assertIn("人机", P.classify(200, "Just a moment... checking your browser"))
 
 
 if __name__ == "__main__":

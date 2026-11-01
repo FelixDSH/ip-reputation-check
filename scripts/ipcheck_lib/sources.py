@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # 由 tools/make_pkg.py 从 ipcheck.py 自动拆分生成，请勿手改结构注释。
 import argparse
 import concurrent.futures as cf
@@ -102,7 +102,8 @@ def src_proxycheck(ip, timeout):
     }
 
 _SCAM_BLOCK_MARKERS = ("just a moment", "cf-chl", "challenge-platform", "attention required",
-                       "captcha", "access denied", "403 forbidden", "request blocked",
+                       "captcha", "access denied", "has been denied", "request blocked", "blocked",
+                       "not available in your region", "unavailable in your region",
                        "enable javascript and cookies", "are you a robot")
 
 
@@ -113,7 +114,7 @@ def parse_scamalytics_html(txt, ip=None):
     low = txt.lower()
     if any(k in low for k in _SCAM_BLOCK_MARKERS):
         raise RuntimeError("页面异常(验证码/拦截页)，未解析")
-    m = re.search(r"Fraud Score[^0-9]{0,60}(\d+)", txt, re.I)
+    m = re.search(r"Fraud Score\s*:?\s*(?:<[^>]*>\s*){0,3}(\d{1,3})", txt, re.I)
     if not m:
         raise RuntimeError("页面未解析到 Fraud Score（可能为错误页或改版）")
     score = int(m.group(1))

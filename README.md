@@ -53,6 +53,7 @@ python tests/test_core.py            # 核心逻辑单测
 python tests/test_counterexamples.py # 之前审计反例的硬性回归（空数据/仅地理/仅RDAP/空字段/DNS临时失败/探针误判/JSON）
 python tests/test_fixtures.py        # 固定响应快照解析回归
 python tests/test_cache.py           # 来源级缓存/时间元数据（命中/自然过期后刷新/刷新穿透名单缓存/超期不参与/条目校验/IPv6/损坏/无密钥，14 项）
+python tests/test_contract.py        # 上游契约：验证码/软封200/错误页/字段缺失/越界/名单HTML 不得解析成功（含 abnormal fixtures）
 python tests/test_consistency.py     # 10 种 IP 类型 × 文案自洽性
 python scripts/ipcheck.py health      # 源健康检查
 ```
