@@ -472,6 +472,7 @@ python scripts/ipcheck.py watch --egress --interval 30
   地理 =US 强度:高 支持:DB-IP,ipinfo.io,ip-api.com,... 反对:-
 ```
 - **RDAP ≠ BGP ≠ 实际使用者**：登记归属（谁登记）、路由归属（谁宣告）、实际使用（谁在用）三者不一致不一定异常。
+- **云厂商识别**：按 ASN / 组织名映射常见云（AWS / GCP / Azure / Cloudflare / DigitalOcean / OVH / Hetzner / Vultr / Oracle / 阿里 / 腾讯 等），命中即判"机房/云"。
 - **Tor 官方名单**优先于社区标记；未命中≠不是任何代理。
 - 证据强度是"来源等级 × 一致度"，不是统计置信区间。
 
@@ -492,6 +493,7 @@ python scripts/ipcheck.py 1.2.3.4 --probe --proxy http://host:port
 
 实测状态（严格区分，不把推测当实测）：
 `连接成功(未验证登录/功能)` / `明确地区限制` / `人机验证(挑战页,≠封号)` / `需登录/鉴权` / `访问拒绝(原因不明,不能断定封IP)` / `限流` / `连接失败`。
+直连模式还会给出**逐层分解**：`DNS 7ms/TCP 0ms/TLS 1544ms · HTTP 204`（代理模式由代理完成握手，只报 HTTP）。
 
 > **HTTP 200 ≠ 功能可用；403 ≠ 封号；401 可能只是没带 key。** 默认不登录/不注册/不付款、只读、少量请求。出口与目标不一致时，实测结论只代表实际出口那个 IP。
 

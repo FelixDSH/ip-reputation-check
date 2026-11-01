@@ -265,6 +265,16 @@ class TestProbe(unittest.TestCase):
         import ipcheck_lib.probe as P
         self.assertIn("人机", P.classify(200, "Just a moment... checking your browser"))
 
+    def test_probe_layers_dns_fail(self):
+        import ipcheck_lib.probe as P
+        import socket
+        def boom(*a, **k):
+            raise socket.gaierror(-2, "Name or service not known")
+        with mock.patch.object(P.socket, "getaddrinfo", boom):
+            r = P.probe_layers("https://example.test/", 5)
+        self.assertEqual(r["layer"], "dns")
+        self.assertIsNotNone(r["error"])
+
 
 class TestP0Guards(unittest.TestCase):
     def test_private_ip_skips_public_query(self):
@@ -318,6 +328,19 @@ class TestP0Guards(unittest.TestCase):
                     "error": None}]
         agg = ic.aggregate("1.2.3.4", results)
         self.assertEqual(agg["verdict"]["risk_level"], "unknown")
+
+    def test_detect_cloud(self):
+        self.assertEqual(ic.detect_cloud("AS15169 Google LLC"), "Google")
+        self.assertEqual(ic.detect_cloud("AS16509 Amazon.com, Inc."), "AWS")
+        self.assertIsNone(ic.detect_cloud("Some Random ISP"))
+
+    def test_cloud_implies_datacenter(self):
+        results = [{"source": "ipinfo", "ok": True,
+                    "data": {"country": "US", "country_code": "US",
+                             "asn_org": "AS15169 Google LLC"}, "error": None}]
+        agg = ic.aggregate("8.8.8.8", results)
+        self.assertEqual(agg["network"]["cloud"], "Google")
+        self.assertIn("机房", agg["ip_type"])
 
     def test_spamhaus_transient_is_unknown(self):
         import socket

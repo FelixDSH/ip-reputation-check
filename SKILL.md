@@ -113,6 +113,7 @@ python scripts/ipcheck.py check <IP> --gateway http://GATEWAY:8787
 | IP 类型 | 住宅 / 移动(4G/5G) / 机房云主机 / 企业 / 教育 / 政府 / Tor / VPN / 代理 |
 | 登记(RDAP) | 地址资源登记组织 / 范围（"分配给谁"，非当前使用者/位置） |
 | 路由(BGP) | 当前是否宣告的前缀 / 起源 ASN（"路由归属"，非安全） |
+| 云厂商 | 按 ASN/组织名识别的云/机房厂商（AWS/GCP/Azure/CF/OVH/Hetzner…），命中即机房 |
 | 证据强度 | 每个字段的支持来源 / 反对来源 / 强度(高/中/低) |
 | 代理 Proxy | proxycheck.io 优先，其次 iphub，最后 ip-api；源间冲突会在「备注」提示 |
 | VPN | proxycheck 类型或 iphub block 判定 |

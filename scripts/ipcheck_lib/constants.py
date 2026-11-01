@@ -19,7 +19,7 @@ import urllib.request
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/125.0 Safari/537.36")
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 
 DEFAULT_TIMEOUT = 12
 
@@ -110,8 +110,21 @@ SOURCE_TIER = {
 
 TIER_WEIGHT = {"A": 3, "B": 2, "C": 1}
 
+# 常见云/机房厂商 ASN → 名称（用于"云厂商"识别与 hosting 证据；非穷尽，未知则按组织名关键字推断）
+CLOUD_ASN_MAP = {
+    15169: "Google", 396982: "Google Cloud", 16509: "AWS", 14618: "AWS",
+    8075: "Microsoft Azure", 13335: "Cloudflare", 209242: "Cloudflare",
+    14061: "DigitalOcean", 16276: "OVH", 24940: "Hetzner", 213230: "Hetzner",
+    20473: "Vultr", 31898: "Oracle Cloud", 37963: "Alibaba Cloud", 45102: "Alibaba Cloud",
+    132203: "Tencent Cloud", 45090: "Tencent Cloud", 63949: "Akamai/Linode",
+    9009: "M247", 51167: "Contabo", 197540: "Netcup", 8560: "IONOS",
+    36352: "ColoCrossing", 46844: "Sharktech", 53667: "FranTech/BuyVM",
+}
+
 DECISION_LABEL = {"ok": "✅ 较适合", "warn": "⚠️ 谨慎", "no": "⛔ 风险高"}
 
 
-__all__ = ['UA', 'VERSION', 'DEFAULT_TIMEOUT', 'RISK_W_PROXY', 'RISK_W_VPN', 'RISK_W_HOSTING', 'RISK_W_TOR', 'RISK_W_MOBILE', 'RISK_T_CLEAN', 'RISK_T_LOW', 'RISK_T_MEDIUM', 'CLOUD_HINTS', 'PLATFORM_PROFILES', 'AI_RESTRICTED', 'PLATFORMS', 'SERVICE_REGIONS', 'SOURCE_LABEL', 'SOURCE_TIER', 'TIER_WEIGHT', 'DECISION_LABEL']
+__all__ = ['UA', 'VERSION', 'DEFAULT_TIMEOUT', 'RISK_W_PROXY', 'RISK_W_VPN', 'RISK_W_HOSTING', 'RISK_W_TOR', 'RISK_W_MOBILE', 'RISK_T_CLEAN', 'RISK_T_LOW', 'RISK_T_MEDIUM', 'CLOUD_HINTS', 'PLATFORM_PROFILES', 'AI_RESTRICTED', 'PLATFORMS', 'SERVICE_REGIONS', 'SOURCE_LABEL', 'SOURCE_TIER', 'TIER_WEIGHT', 'DECISION_LABEL', 'CLOUD_ASN_MAP']
+
+
 

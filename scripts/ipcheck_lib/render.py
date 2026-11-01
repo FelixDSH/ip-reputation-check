@@ -106,6 +106,8 @@ def render_report(agg, color=True):
     lines.append("位置        : " + loc + (("   时区 " + geo["timezone"]) if geo.get("timezone") else ""))
     lines.append("ASN / 组织  : " + (net.get("asn_org") or "-"))
     lines.append("ISP         : " + (net.get("isp") or "-"))
+    if net.get("cloud"):
+        lines.append("云厂商      : " + str(net["cloud"]) + "（机房/云）")
     if net.get("hostname"):
         lines.append("PTR 主机名  : " + str(net["hostname"]))
     if net.get("type"):

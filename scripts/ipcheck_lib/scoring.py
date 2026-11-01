@@ -294,6 +294,9 @@ def aggregate(ip, results):
         ("ipinfo", _hosting_from_org(asn_org or isp)),
     ]
     hosting = _vote(conflicts, "Hosting", hosting_votes)
+    cloud = detect_cloud(asn_org)
+    if cloud:
+        hosting = True  # 已知云/机房厂商即机房
     mobile = ipapi.get("mobile") if ipapi.get("mobile") is not None else None
     # Tor：官方出口名单优先（权威）；无该源时回退到 AbuseIPDB / iphub 标记
     if bool(get.get("tor_exit") and get["tor_exit"]["ok"]):
@@ -418,6 +421,7 @@ def aggregate(ip, results):
         "ip_type": ip_type,
         "geo": geo,
         "network": {"asn_org": asn_org, "isp": isp, "hostname": hostname,
+                    "cloud": cloud,
                     "usage_type": abuse.get("usage_type"), "type": proxycheck.get("type"),
                     "registry": ({"handle": rdap.get("handle"), "name": rdap.get("name"),
                                   "org": rdap.get("org"),
@@ -467,6 +471,28 @@ def _hosting_from_org(s):
         return None
     low = str(s).lower()
     return True if any(k in low for k in CLOUD_HINTS) else None
+
+
+_ORG_CLOUD = (("amazon", "AWS"), ("aws", "AWS"), ("google", "Google"), ("microsoft", "Microsoft Azure"),
+              ("azure", "Microsoft Azure"), ("cloudflare", "Cloudflare"), ("digitalocean", "DigitalOcean"),
+              ("ovh", "OVH"), ("hetzner", "Hetzner"), ("vultr", "Vultr"), ("oracle", "Oracle Cloud"),
+              ("alibaba", "Alibaba Cloud"), ("aliyun", "Alibaba Cloud"), ("tencent", "Tencent Cloud"),
+              ("linode", "Akamai/Linode"), ("akamai", "Akamai"), ("contabo", "Contabo"))
+
+
+def detect_cloud(asn_org):
+    """按 ASN 号或组织名识别云/机房厂商（非穷尽，未知返回 None）。"""
+    s = asn_org or ""
+    m = re.search(r"AS(\d+)", s)
+    if m:
+        p = CLOUD_ASN_MAP.get(int(m.group(1)))
+        if p:
+            return p
+    low = s.lower()
+    for k, v in _ORG_CLOUD:
+        if k in low:
+            return v
+    return None
 
 def classify_ip_type(flags, net, asn_org):
     """把 IP 归类为住宅/移动/机房/企业/教育/政府/Tor/VPN/代理。"""
@@ -593,7 +619,8 @@ def check_ip(ip, only=None, timeout=DEFAULT_TIMEOUT):
     return aggregate(ip, results)
 
 
-__all__ = ['_coherent_geo', '_vote', '_conf_bool', '_conf_cat', '_platform_level', '_platform_fit', '_type_reason', '_abuse_hit', 'compute_decisions', 'compute_platforms', 'aggregate', '_pick_bool', '_hosting_from_org', 'classify_ip_type', 'compute_risk', 'risk_label', 'check_ip', '_local_agg', '_has_fields', '_nonempty']
+__all__ = ['_coherent_geo', '_vote', '_conf_bool', '_conf_cat', '_platform_level', '_platform_fit', '_type_reason', '_abuse_hit', 'compute_decisions', 'compute_platforms', 'aggregate', '_pick_bool', '_hosting_from_org', 'classify_ip_type', 'compute_risk', 'risk_label', 'check_ip', '_local_agg', '_has_fields', '_nonempty', 'detect_cloud']
+
 
 
 
