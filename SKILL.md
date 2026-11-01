@@ -33,6 +33,8 @@ license: MIT
   - `IPINFO_TOKEN`（提高 ipinfo 限额，可选）
   - `SCAMALYTICS_USER` + `SCAMALYTICS_KEY`（走官方 API，缺省用网页解析）
   - `IPHUB_TURNSTILE_TOKEN`（人工过 iphub 验证后拿到的 token，可选）
+  - `VIRUSTOTAL_API_KEY`（可选，70+ 引擎恶意判定）
+  - 地理：免 key 的 **DB-IP** 已内置；最权威可接 **MaxMind GeoLite2**：`python scripts/setup_geoip.py --license-key KEY`（需 `pip install maxminddb`）
 
 ## 核心用法（对 agent 的硬性步骤）
 

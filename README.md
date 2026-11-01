@@ -49,6 +49,17 @@ python -m PyInstaller --onefile --name ipcheck --distpath dist --workpath build 
 
 打出来后分发 `dist/ipcheck.exe` 即可，对方无需安装任何东西（Windows 直接运行）。
 
+### 地理升级到 MaxMind GeoLite2（免费、最权威）
+
+不配置时已用 **DB-IP（免 key）** 交叉校验地理。想要"最权威"再接 MaxMind GeoLite2：
+
+1. 免费注册 MaxMind → 生成 License Key： https://www.maxmind.com/en/geolite2/signup
+2. `pip install maxminddb`
+3. `python scripts/setup_geoip.py --license-key YOUR_KEY`（自动下载到 `data/`）
+4. 之后 ipcheck 自动生效（或 `set GEOIP2_MMDB=<路径>`）
+
+> 国内下载慢可挂代理，或手动把 `GeoLite2-City.mmdb` 放进 `data/` 目录即可。
+
 ## 为什么做这个
 
 做跨境网络 / 代理 / 机场选型时，判断一个 IP 干不干净，通常要挨个打开
@@ -71,6 +82,8 @@ ipinfo.io、iphub.info、scamalytics.com、abuseipdb.com 手动输入——非�
 | IPsum（GitHub） | 聚合黑名单命中条数 | 否 |
 | **Spamhaus DNSBL** | SBL/XBL/PBL 权威反滥用名单 | 否（DNS 低量） |
 | **VirusTotal** | 70+ 引擎聚合恶意判定 | 可选 `VIRUSTOTAL_API_KEY` |
+| **DB-IP** | 地理（正规数据商，免 key 交叉源） | 否 |
+| **MaxMind GeoLite2** | 地理（最权威，本地库） | 免费 License Key + `maxminddb` |
 
 缺 key 的源会自动跳过并在报告里标注，不影响其它指标。
 
@@ -145,7 +158,7 @@ ipcheck myip [--json]
 ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only ...]
 ```
 
-`--only` 可选值：`ipinfo,ipapi,ipwhois,proxycheck,scamalytics,iphub,abuseipdb,stopforumspam,blocklistde,ipsum,spamhaus,virustotal`
+`--only` 可选值：`ipinfo,ipapi,ipwhois,proxycheck,scamalytics,iphub,abuseipdb,stopforumspam,blocklistde,ipsum,spamhaus,virustotal,dbip,maxmind`
 
 客户端相关环境变量：`IPCHECK_GATEWAY`（网关地址）、`IPCHECK_GATEWAY_TOKEN`（网关令牌）。
 服务端（网关）相关：`IPHUB_API_KEY`、`ABUSEIPDB_API_KEY`、`IPINFO_TOKEN`、`GATEWAY_TOKEN`。

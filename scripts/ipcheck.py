@@ -73,7 +73,7 @@ def _setup_console():
 DEFAULT_TIMEOUT = 12
 ALL_SOURCES = ["ipinfo", "ipapi", "ipwhois", "proxycheck", "scamalytics",
                "iphub", "abuseipdb", "stopforumspam", "blocklistde", "ipsum",
-               "spamhaus", "virustotal"]
+               "spamhaus", "virustotal", "dbip", "maxmind"]
 
 # 云/机房组织关键字（辅助判断 hosting）
 CLOUD_HINTS = ("amazon", "aws", "google", "microsoft", "azure", "digitalocean",
@@ -460,6 +460,65 @@ def src_virustotal(ip, timeout):
     }
 
 
+def src_dbip(ip, timeout):
+    """免 key：DB-IP 免费 GeoIP API（正规 IP 数据商，地理交叉校验）。"""
+    _, txt = http_get("https://api.db-ip.com/v2/free/%s" % ip, timeout=timeout)
+    d = _j(txt)
+    if d.get("error"):
+        raise RuntimeError(str(d.get("error")))
+    return {
+        "country": d.get("countryName"), "country_code": d.get("countryCode"),
+        "region": d.get("stateProv"), "city": d.get("city"),
+    }
+
+
+_MMDB_CACHE = {}
+
+
+def _maxmind_path():
+    p = os.environ.get("GEOIP2_MMDB", "").strip()
+    if p and os.path.exists(p):
+        return p
+    base = os.path.dirname(os.path.abspath(__file__))
+    for name in ("GeoLite2-City.mmdb", "GeoLite2-Country.mmdb"):
+        cand = os.path.normpath(os.path.join(base, "..", "data", name))
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
+def src_maxmind(ip, timeout):
+    """可选：MaxMind GeoLite2 本地库（最权威地理）。需 .mmdb + maxminddb 库。"""
+    path = _maxmind_path()
+    if not path:
+        raise RuntimeError("未配置 MaxMind：运行 scripts/setup_geoip.py --license-key KEY 下载库，或设 GEOIP2_MMDB")
+    try:
+        import maxminddb
+    except Exception:
+        raise RuntimeError("需先安装 maxminddb：pip install maxminddb")
+    reader = _MMDB_CACHE.get(path)
+    if reader is None:
+        reader = maxminddb.open_database(path)
+        _MMDB_CACHE[path] = reader
+    rec = reader.get(ip) or {}
+    if not rec:
+        raise RuntimeError("库中无此 IP")
+    country = (rec.get("country") or {}).get("names", {}).get("en")
+    cc = (rec.get("country") or {}).get("iso_code") or (rec.get("registered_country") or {}).get("iso_code")
+    subs = rec.get("subdivisions") or []
+    region = (subs[0].get("names", {}).get("en") if subs else None)
+    city = (rec.get("city") or {}).get("names", {}).get("en")
+    loc = rec.get("location") or {}
+    traits = rec.get("traits") or {}
+    return {
+        "country": country, "country_code": cc, "region": region, "city": city,
+        "lat": loc.get("latitude"), "lon": loc.get("longitude"),
+        "timezone": loc.get("time_zone"),
+        "asn": traits.get("autonomous_system_number"),
+        "asn_org": traits.get("autonomous_system_organization"),
+    }
+
+
 SOURCES = {
     "ipinfo": src_ipinfo,
     "ipapi": src_ipapi,
@@ -473,6 +532,8 @@ SOURCES = {
     "ipsum": src_ipsum,
     "spamhaus": src_spamhaus,
     "virustotal": src_virustotal,
+    "dbip": src_dbip,
+    "maxmind": src_maxmind,
 }
 
 SOURCE_LABEL = {
@@ -481,12 +542,12 @@ SOURCE_LABEL = {
     "iphub": "iphub.info", "abuseipdb": "abuseipdb.com",
     "stopforumspam": "stopforumspam.com", "blocklistde": "blocklist.de",
     "ipsum": "IPsum(聚合黑名单)", "spamhaus": "Spamhaus DNSBL",
-    "virustotal": "VirusTotal",
+    "virustotal": "VirusTotal", "dbip": "DB-IP", "maxmind": "MaxMind GeoLite2",
 }
 
 # 源等级：A=权威/商业数据源，B=专业检测，C=社区/聚合（仅供参考）
 SOURCE_TIER = {
-    "ipinfo": "A", "spamhaus": "A", "virustotal": "A",
+    "ipinfo": "A", "spamhaus": "A", "virustotal": "A", "maxmind": "A", "dbip": "A",
     "ipapi": "B", "proxycheck": "B", "blocklistde": "B",
     "ipwhois": "C", "iphub": "C", "scamalytics": "C",
     "abuseipdb": "C", "stopforumspam": "C", "ipsum": "C",
@@ -513,7 +574,7 @@ def _pick(*vals):
 
 def _coherent_geo(sources):
     """从单一来源取一整套地理字段，避免跨源拼接导致的不一致。"""
-    order = ["ipapi", "ipinfo", "ipwhois", "proxycheck"]
+    order = ["maxmind", "ipapi", "dbip", "ipinfo", "ipwhois", "proxycheck"]
     for s in order:
         d = sources.get(s) or {}
         if d.get("country") and (d.get("city") or d.get("region")):
@@ -607,9 +668,11 @@ def aggregate(ip, results):
     sfs = srcs["stopforumspam"]
     bl = srcs["blocklistde"]
     ipsum = srcs["ipsum"]
+    maxmind, dbip = srcs["maxmind"], srcs["dbip"]
 
     geo = _coherent_geo(srcs)
-    asn_org = _pick(ipinfo.get("asn_org"), ipapi.get("asn_org"), ipwho.get("org"),
+    asn_org = _pick(ipinfo.get("asn_org"), maxmind.get("asn_org"), ipapi.get("asn_org"),
+                    ipwho.get("org"),
                     (("AS%s " % ipwho.get("asn")) if ipwho.get("asn") else None),
                     proxycheck.get("asn"))
     isp = _pick(ipapi.get("isp"), ipwho.get("isp"), proxycheck.get("provider"), iphub.get("isp"))
@@ -676,6 +739,8 @@ def aggregate(ip, results):
 
     # 置信度：源等级 × 多源一致度
     geo_votes = [
+        ("maxmind", srcs["maxmind"].get("country_code")),
+        ("dbip", srcs["dbip"].get("country_code")),
         ("ipinfo", ipinfo.get("country")),
         ("ipapi", ipapi.get("country_code")),
         ("ipwhois", ipwho.get("country_code")),

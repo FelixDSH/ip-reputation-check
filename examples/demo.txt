@@ -19,6 +19,6 @@ PTR 主机名  : dns.google
 置信度      : 地理:高  代理:低  VPN:低  托管:高  滥用:低
 备注        : Proxy 源间不一致（proxycheck.io=否, ip-api.com=是），采用 proxycheck.io
 ------------------------------------------------------------
-数据源 成功 : ipinfo.io, ip-api.com, ipwho.is, proxycheck.io, scamalytics.com, stopforumspam.com, blocklist.de, IPsum(聚合黑名单), Spamhaus DNSBL
-数据源 跳过 : iphub.info(需人机验证(Turnstile)：配 IPHUB_API_KEY，或运行 scripts/iphub_browser.py <IP>，或设 IPHUB_TURNSTILE_TOKEN（详见 README「人机验证」）), abuseipdb.com(需免费 ABUSEIPDB_API_KEY（网页人工可查，程序化被 Cloudflare 拦，注册免费 1000/天）), VirusTotal(未配置 VIRUSTOTAL_API_KEY（免费注册可查 70+ 引擎）)
+数据源 成功 : ipinfo.io, ip-api.com, ipwho.is, proxycheck.io, scamalytics.com, stopforumspam.com, blocklist.de, IPsum(聚合黑名单), Spamhaus DNSBL, DB-IP
+数据源 跳过 : iphub.info(需人机验证(Turnstile)：配 IPHUB_API_KEY，或运行 scripts/iphub_browser.py <IP>，或设 IPHUB_TURNSTILE_TOKEN（详见 README「人机验证」）), abuseipdb.com(需免费 ABUSEIPDB_API_KEY（网页人工可查，程序化被 Cloudflare 拦，注册免费 1000/天）), VirusTotal(未配置 VIRUSTOTAL_API_KEY（免费注册可查 70+ 引擎）), MaxMind GeoLite2(未配置 MaxMind：运行 scripts/setup_geoip.py --license-key KEY 下载库，或设 GEOIP2_MMDB)
 ============================================================

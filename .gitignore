@@ -10,6 +10,10 @@ build/
 dist/
 *.spec
 
+# MaxMind GeoLite2 本地库（体积大，勿入库）
+data/
+*.mmdb
+
 # OS
 .DS_Store
 Thumbs.db
