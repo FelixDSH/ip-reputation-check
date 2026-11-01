@@ -785,6 +785,9 @@ def aggregate(ip, results):
     hosting = _vote(conflicts, "Hosting", hosting_votes)
     mobile = ipapi.get("mobile") if ipapi.get("mobile") is not None else None
     tor = _pick_bool(abuse.get("is_tor"), iphub.get("tor"))
+    ip_type = classify_ip_type(
+        {"tor": tor, "vpn": vpn, "proxy": proxy, "hosting": hosting, "mobile": mobile},
+        {"type": proxycheck.get("type")}, asn_org)
 
     fraud_score = _to_int(scam.get("fraud_score"))
     fraud_risk = scam.get("risk")
@@ -852,6 +855,7 @@ def aggregate(ip, results):
 
     return {
         "ip": ip,
+        "ip_type": ip_type,
         "geo": geo,
         "network": {"asn_org": asn_org, "isp": isp, "hostname": hostname,
                     "usage_type": abuse.get("usage_type"), "type": proxycheck.get("type")},
@@ -890,6 +894,105 @@ def _hosting_from_org(s):
         return None
     low = str(s).lower()
     return True if any(k in low for k in CLOUD_HINTS) else None
+
+
+def classify_ip_type(flags, net, asn_org):
+    """把 IP 归类为住宅/移动/机房/企业/教育/政府/Tor/VPN/代理。"""
+    org = (asn_org or "").lower()
+    ptype = (net.get("type") or "").lower()
+    if flags.get("tor"):
+        return "Tor 出口"
+    if flags.get("vpn"):
+        return "VPN"
+    if flags.get("proxy"):
+        return "代理/公共代理"
+    if flags.get("hosting") or ptype in ("hosting", "datacenter") or any(k in org for k in CLOUD_HINTS):
+        return "机房/云主机"
+    if flags.get("mobile") or any(k in org for k in ("mobile", "wireless", "cellular", "4g", "5g", "lte", "蜂窝")):
+        return "移动网络(4G/5G)"
+    if any(k in org for k in ("university", "college", "school", "academy", "institute", "教育")):
+        return "教育网"
+    if any(k in org for k in ("government", "ministry", "gov", "municipal", "council", "政府")):
+        return "政府/机构"
+    if ptype == "business" or any(k in org for k in ("bank", "corp", "enterprise", "business", "company")):
+        return "企业网络"
+    if ptype in ("residential", "isp"):
+        return "住宅/ISP"
+    return "住宅/普通ISP（推断）"
+
+
+def _local_utc_offset():
+    import datetime
+    return datetime.datetime.now().astimezone().utcoffset().total_seconds() / 3600.0
+
+
+def get_dns_resolver(timeout=DEFAULT_TIMEOUT):
+    """通过 edns.ip-api.com 拿当前 DNS 解析器出口（用于 DNS 泄漏判断）。"""
+    try:
+        _, txt = http_get("https://edns.ip-api.com/json", timeout=timeout, retries=0)
+        d = _j(txt).get("dns", {}) or {}
+        return {"ip": d.get("ip"), "geo": d.get("geo")}
+    except Exception as e:  # noqa: BLE001
+        return {"ip": None, "geo": None, "error": str(e)}
+
+
+def env_consistency(geo, do_dns=True):
+    """环境一致性：本机时区 vs IP 时区、DNS 出口国家 vs IP 国家（防关联指纹）。"""
+    notes = []
+    warn = False
+    offset_local = _local_utc_offset()
+    lon = geo.get("lon")
+    ip_off = None
+    tz_ok = None
+    if lon is not None:
+        try:
+            ip_off = round(float(lon) / 15.0)
+        except (TypeError, ValueError):
+            ip_off = None
+    if ip_off is not None:
+        diff = abs(offset_local - ip_off)
+        tz_ok = diff < 2
+        if not tz_ok:
+            warn = True
+            notes.append("时区不一致：本机 UTC%+g vs IP≈UTC%+g（差 %g 小时）→ 浏览器时区指纹会穿帮" % (offset_local, ip_off, diff))
+    dns = {}
+    if do_dns:
+        dns = get_dns_resolver()
+        dgeo = dns.get("geo") or ""
+        ipc = geo.get("country") or ""
+        dns_country = dgeo.split(" - ")[0].strip() if dgeo else None
+        if dns_country and ipc:
+            dns_ok = (ipc.lower() in dgeo.lower()) or (dns_country.lower() in ipc.lower())
+            if not dns_ok:
+                warn = True
+                notes.append("DNS 出口与 IP 国家不一致：DNS=%s，IP=%s → 可能 DNS 泄漏/未走代理" % (dns_country, ipc))
+    return {"local_utc": offset_local, "ip_utc": ip_off, "tz_ok": tz_ok,
+            "dns": dns, "warn": warn, "notes": notes}
+
+
+def render_env(env):
+    lines = []
+    tz = env.get("tz_ok")
+    if tz is None:
+        tz_s = "无法判断"
+    else:
+        tz_s = "✅ 一致" if tz else "⚠️ 不一致"
+    lines.append("环境一致性:")
+    lines.append("  时区: 本机 UTC%+g  vs  IP≈UTC%s  %s" %
+                 (env.get("local_utc", 0),
+                  ("%+g" % env["ip_utc"]) if env.get("ip_utc") is not None else "?", tz_s))
+    dns = env.get("dns") or {}
+    if dns.get("geo"):
+        lines.append("  DNS : 解析器 %s (%s)" % (dns.get("geo"), dns.get("ip")))
+    elif dns.get("error"):
+        lines.append("  DNS : 检测失败（%s）" % dns.get("error"))
+    for n in env.get("notes", []):
+        lines.append("  ⚠️ " + n)
+    if not env.get("warn"):
+        lines.append("  结论: ✅ 环境基本一致")
+    else:
+        lines.append("  结论: ⚠️ 环境不一致，易被平台风控识别")
+    return "\n".join(lines)
 
 
 def compute_risk(fraud, abuse, proxy, vpn, hosting, tor, mobile, free_pts=0):
@@ -1008,6 +1111,7 @@ def render_report(agg, color=True):
         lines.append("PTR 主机名  : " + str(net["hostname"]))
     if net.get("type"):
         lines.append("网络类型    : " + str(net["type"]) + ((" / 用途:" + str(net["usage_type"])) if net.get("usage_type") else ""))
+    lines.append("IP 类型     : " + (agg.get("ip_type") or "-"))
     lines.append("-" * 60)
     lines.append("代理 Proxy  : " + _fmt_bool(fl.get("proxy")) +
                  "    VPN: " + _fmt_bool(fl.get("vpn")) +
@@ -1086,6 +1190,7 @@ def render_brief(agg):
     flag = {"clean": "🟢", "low": "🟡", "medium": "🟠", "high": "🔴"}.get(vd["risk_level"], "")
     parts = [
         agg["ip"], loc, (net.get("asn_org") or "-"),
+        "type:%s" % (agg.get("ip_type") or "-"),
         "proxy:%s vpn:%s host:%s" % (_fmt_bool(fl.get("proxy")), _fmt_bool(fl.get("vpn")), _fmt_bool(fl.get("hosting"))),
         "fraud:%s" % (fs if fs is not None else "-"),
         "abuse:%s" % ((str(abuse) + "%") if abuse is not None else "-"),
@@ -1134,10 +1239,27 @@ def cmd_myip(args):
     if not ip:
         print("无法获取出口 IP（所有回显源均失败）")
         return 2
+    geo = {}
+    try:
+        _, txt = http_get("http://ip-api.com/json/%s?fields=status,message,country,countryCode,city,timezone,lat,lon,isp"
+                          % ip, timeout=args.timeout, retries=0)
+        d = _j(txt)
+        if d.get("status") == "success":
+            geo = {"country": d.get("country"), "country_code": d.get("countryCode"),
+                   "city": d.get("city"), "timezone": d.get("timezone"),
+                   "lat": d.get("lat"), "lon": d.get("lon"), "isp": d.get("isp")}
+    except Exception:
+        pass
+    env = env_consistency(geo)
     if args.json:
-        print(json.dumps({"egress_ip": ip, "via": via}, ensure_ascii=False, indent=2))
+        print(json.dumps({"egress_ip": ip, "via": via, "geo": geo, "env": env},
+                         ensure_ascii=False, indent=2, default=str))
     else:
         print("当前出口 IP: " + ip + "   (来源: " + str(via) + ")")
+        if geo.get("country"):
+            print("位置: %s %s   ISP: %s   时区: %s" % (
+                geo.get("country"), geo.get("city") or "", geo.get("isp") or "", geo.get("timezone") or ""))
+        print(render_env(env))
     return 0
 
 
@@ -1283,6 +1405,11 @@ def cmd_check(args):
                 continue
         else:
             agg = check_ip(ip, only=args.only, timeout=args.timeout)
+        if getattr(args, "env", False):
+            try:
+                agg["env"] = env_consistency(agg.get("geo") or {})
+            except Exception:
+                agg["env"] = {}
         if args.json:
             print(render_json(agg))
         elif getattr(args, "brief", False):
@@ -1291,6 +1418,8 @@ def cmd_check(args):
             if idx:
                 print()
             print(render_report(agg, color=color))
+            if agg.get("env"):
+                print(render_env(agg["env"]))
         if getattr(args, "open", False):
             import webbrowser
             for u in ("https://www.abuseipdb.com/check/%s" % ip,
@@ -1325,6 +1454,7 @@ def build_parser():
     pc.add_argument("--json", action="store_true", help="输出 JSON")
     pc.add_argument("--brief", action="store_true", help="一行式简报")
     pc.add_argument("--open", action="store_true", help="检测后自动打开 abuseipdb/iphub 网页(IP已带入)")
+    pc.add_argument("--env", action="store_true", help="附加环境一致性检测（本机时区/DNS vs IP，防关联指纹）")
     pc.add_argument("--gateway", default=None,
                     help="走自建网关（也可用环境变量 IPCHECK_GATEWAY），客户端无需任何源 key")
     pc.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)

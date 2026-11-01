@@ -152,9 +152,9 @@ $env:ABUSEIPDB_API_KEY="你的key"
 ## 命令行参数
 
 ```
-ipcheck check <IP...> [--json] [--brief] [--open] [--only a,b,...] [--gateway URL] [--timeout 12] [--no-color]
+ipcheck check <IP...> [--json] [--brief] [--open] [--env] [--only a,b,...] [--gateway URL] [--timeout 12] [--no-color]
 ipcheck open <IP> [--all] [--which abuseipdb,iphub,scamalytics,stopforumspam]
-ipcheck myip [--json]
+ipcheck myip [--json]        # 出口 IP + 环境一致性
 ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only ...]
 ```
 
@@ -291,6 +291,29 @@ python scripts/ipcheck.py check 8.8.8.8
 
 ### 想要更高可信度 → 换商业 API
 `MaxMind GeoIP2 / minFraud`、`IPQualityScore`、`Spur`、`VirusTotal`、`Spamhaus`、`Cisco Talos` 才适合严谨风控。
+
+## IP 类型细分 & 环境一致性（防关联）
+
+**IP 类型细分**：除了「是不是机房」，还会归类为 住宅/移动(4G/5G)/机房云主机/企业/教育/政府/Tor/VPN/代理。
+报表里直接看 `IP 类型`，也用于平台适配度判断（住宅/移动更"像真人"）。
+
+**环境一致性检测**（防关联指纹，别人很少做）：
+```bash
+python scripts/ipcheck.py myip            # 看自己出口 IP + 环境一致性
+python scripts/ipcheck.py <IP> --env      # 检查某 IP 时附带环境比对
+```
+检测两项「穿帮」信号：
+- **时区**：本机时区 vs 出口 IP 大致时区是否一致（差 ≥2 小时 → 浏览器时区指纹穿帮）
+- **DNS 出口**：DNS 解析器所在国 vs IP 所在国（不一致 → 可能 DNS 泄漏/未全程走代理）
+
+示例（本机在国内、却用日本代理但没走 DNS）：
+```
+环境一致性:
+  时区: 本机 UTC+8  vs  IP≈UTC+9  ✅ 一致
+  DNS : 解析器 China - China Mobile ... 
+  ⚠️ DNS 出口与 IP 国家不一致：DNS=China，IP=Japan → 可能 DNS 泄漏/未走代理
+  结论: ⚠️ 环境不一致，易被平台风控识别
+```
 
 ## 平台适配度（IP 对社媒 / AI / 电商 / 流媒体的可用度）
 

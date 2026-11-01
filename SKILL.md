@@ -63,9 +63,12 @@ python scripts/ipcheck.py 8.8.8.8 --json            # 结构化输出
 # 只跑部分源（更快）
 python scripts/ipcheck.py 1.2.3.4 --only ipapi,proxycheck,scamalytics
 
+# 看当前出口 IP + 环境一致性（时区/DNS vs IP）
+python scripts/ipcheck.py myip
+python scripts/ipcheck.py <IP> --env      # 检查某 IP 时附带环境一致性(防关联指纹)
+
 # 检测完打开 abuseipdb/iphub 网页（IP 已自动带入，人工核验）
 python scripts/ipcheck.py 8.8.8.8 --open
-# 只打开网页人工看（默认 abuseipdb；--all 全开）
 python scripts/ipcheck.py open 8.8.8.8 --all
 
 # 看当前出口 IP
@@ -89,6 +92,7 @@ python scripts/ipcheck.py check <IP> --gateway http://GATEWAY:8787
 | 字段 | 含义 |
 |------|------|
 | 位置 / ASN / ISP | 来源 ip-api / ipinfo / ipwho.is，取单源整套以免跨源错配 |
+| IP 类型 | 住宅 / 移动(4G/5G) / 机房云主机 / 企业 / 教育 / 政府 / Tor / VPN / 代理 |
 | 代理 Proxy | proxycheck.io 优先，其次 iphub，最后 ip-api；源间冲突会在「备注」提示 |
 | VPN | proxycheck 类型或 iphub block 判定 |
 | 托管 Hosting | ip-api hosting、proxycheck 类型或云厂商组织关键字 |
