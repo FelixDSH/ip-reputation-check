@@ -60,6 +60,11 @@ python scripts/ipcheck.py 8.8.8.8 --json            # 结构化输出
 # 只跑部分源（更快）
 python scripts/ipcheck.py 1.2.3.4 --only ipapi,proxycheck,scamalytics
 
+# 检测完打开 abuseipdb/iphub 网页（IP 已自动带入，人工核验）
+python scripts/ipcheck.py 8.8.8.8 --open
+# 只打开网页人工看（默认 abuseipdb；--all 全开）
+python scripts/ipcheck.py open 8.8.8.8 --all
+
 # 看当前出口 IP
 python scripts/ipcheck.py myip
 
@@ -101,6 +106,7 @@ python scripts/ipcheck.py check <IP> --gateway http://GATEWAY:8787
 - 免费源有速率限制（ip-api 45 次/分、proxycheck 免 key 约 100 次/天），批量检测请加 `--interval` 或配 key。
 - **人机验证**：ipinfo / ip-api / ipwho.is / proxycheck / scamalytics 都是干净的 JSON 接口，无验证码；只有 **iphub 游客接口**（可能弹 Cloudflare Turnstile）和 **abuseipdb 网页版**（403）会拦。对策按优先级：① 配免费 `IPHUB_API_KEY` / `ABUSEIPDB_API_KEY`（彻底免验证码，首选）；② `python scripts/iphub_browser.py <IP>` 用真实 Chrome 人工过验证；③ 设 `IPHUB_TURNSTILE_TOKEN` 或接打码服务。详见 README「人机验证」章节。
 - 判定为"代理/VPN/机房"不等于恶意；很多 CDN（如 Cloudflare、Google DNS）也会被标 hosting。
+- **滥用举报不止 AbuseIPDB**：AbuseIPDB 需免费 key；免 key 的 StopForumSpam / blocklist.de / IPsum 已自动包含并计入风险。想直接看 AbuseIPDB 网页用 `python scripts/ipcheck.py open <IP>`（自动带入 IP）。
 
 ## 作为 skill 安装
 

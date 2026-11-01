@@ -19,8 +19,9 @@ python scripts/ipcheck.py 8.8.8.8 --brief    # 一行式简报
 | 你想要 | 额外条件 |
 |--------|----------|
 | 基础判定：位置 / ASN / 代理 / VPN / 机房 / 欺诈分 / 综合风险 | 无，直接跑 |
+| 其他滥用举报信号（StopForumSpam / blocklist.de / IPsum） | 无，自动显示 |
 | iphub：代理类型细分（住宅/机房/住宅代理） | 免费 `IPHUB_API_KEY`；或本机跑 `scripts/iphub_browser.py` 人工过验证 |
-| abuseipdb：滥用置信度 | 免费 `ABUSEIPDB_API_KEY`（**网页人工输入 IP 免 key 可看，但程序化访问被 Cloudflare 拦，只能走免费 API**） |
+| abuseipdb：滥用置信度 | 免费 `ABUSEIPDB_API_KEY`；或 `ipcheck.py open <IP>` 打开网页人工看（网页免 key） |
 
 ## 环境要求（用户要装什么？）
 
@@ -63,6 +64,9 @@ ipinfo.io、iphub.info、scamalytics.com、abuseipdb.com 手动输入——非�
 | scamalytics.com | Fraud Score + 风险等级 | 否（网页解析；可配 API） |
 | iphub.info | block 等级 + proxyType（proxy/tor/hosting/residentialProxy） | 游客免 key（高信誉出口直出，机房可能触发 Turnstile）；推荐 `IPHUB_API_KEY` |
 | abuseipdb.com | Abuse Confidence / 报告数 | 是：`ABUSEIPDB_API_KEY` |
+| stopforumspam.com | 垃圾信息 / 滥用举报频率 | 否 |
+| blocklist.de | 攻击举报数 | 否 |
+| IPsum（GitHub） | 聚合黑名单命中条数 | 否 |
 
 缺 key 的源会自动跳过并在报告里标注，不影响其它指标。
 
@@ -131,12 +135,13 @@ $env:ABUSEIPDB_API_KEY="你的key"
 ## 命令行参数
 
 ```
-ipcheck check <IP...> [--json] [--only a,b,...] [--gateway URL] [--timeout 12] [--no-color]
+ipcheck check <IP...> [--json] [--brief] [--open] [--only a,b,...] [--gateway URL] [--timeout 12] [--no-color]
+ipcheck open <IP> [--all] [--which abuseipdb,iphub,scamalytics,stopforumspam]
 ipcheck myip [--json]
 ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only ...]
 ```
 
-`--only` 可选值：`ipinfo,ipapi,ipwhois,proxycheck,scamalytics,iphub,abuseipdb`
+`--only` 可选值：`ipinfo,ipapi,ipwhois,proxycheck,scamalytics,iphub,abuseipdb,stopforumspam,blocklistde,ipsum`
 
 客户端相关环境变量：`IPCHECK_GATEWAY`（网关地址）、`IPCHECK_GATEWAY_TOKEN`（网关令牌）。
 服务端（网关）相关：`IPHUB_API_KEY`、`ABUSEIPDB_API_KEY`、`IPINFO_TOKEN`、`GATEWAY_TOKEN`。
@@ -193,6 +198,29 @@ while True:
 > 说明：验证码是对方的风控。优先官方 API；自用/有权限场景下再考虑浏览器或打码，并控制频率。
 
 ## 命令行参数
+
+## 滥用举报记录：不止 AbuseIPDB（这些免 key）
+
+AbuseIPDB 前端对程序化访问会拦（返回 "Please Don't Scrape"），程序里只能走免费 key。但**滥用/举报类信号并非只有它**，工具已内置几个完全免 key 的渠道：
+
+| 渠道 | 指标 | key |
+|------|------|-----|
+| StopForumSpam | 垃圾信息 / 滥用举报频率 | 免 |
+| blocklist.de | 攻击举报数 | 免 |
+| IPsum | 聚合 30+ 个黑名单的命中条数 | 免 |
+| Scamalytics | 欺诈分（也可作滥用参考） | 免 |
+
+报表会显示：`滥用举报(免key): StopForumSpam频率:X  blocklist.de攻击:Y  IPsum:命中/未命中`，并计入综合风险。
+
+### 一键打开网页并自动填入 IP（人工核验）
+
+有些站人肉打开最省事，工具会自动把 IP 拼进网址打开浏览器：
+
+```bash
+python scripts/ipcheck.py open 8.8.8.8          # 默认打开 abuseipdb 检查页
+python scripts/ipcheck.py open 8.8.8.8 --all    # abuseipdb / iphub / scamalytics / stopforumspam 全开
+python scripts/ipcheck.py 8.8.8.8 --open        # 检测完顺带打开 abuseipdb + iphub（IP 已带入）
+```
 
 ## 为什么不要把 key 写进分发的 skill（多人共用正确姿势）
 

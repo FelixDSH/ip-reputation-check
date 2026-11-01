@@ -43,6 +43,7 @@ import re
 import socket
 import ssl
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -71,7 +72,7 @@ def _setup_console():
 
 DEFAULT_TIMEOUT = 12
 ALL_SOURCES = ["ipinfo", "ipapi", "ipwhois", "proxycheck", "scamalytics",
-               "iphub", "abuseipdb"]
+               "iphub", "abuseipdb", "stopforumspam", "blocklistde", "ipsum"]
 
 # 云/机房组织关键字（辅助判断 hosting）
 CLOUD_HINTS = ("amazon", "aws", "google", "microsoft", "azure", "digitalocean",
@@ -340,6 +341,78 @@ def src_abuseipdb(ip, timeout):
     }
 
 
+def src_stopforumspam(ip, timeout):
+    """免 key：垃圾信息/滥用举报频率。"""
+    _, txt = http_get("https://api.stopforumspam.org/api?ip=%s&json" % ip,
+                      timeout=timeout)
+    d = _j(txt)
+    node = d.get("ip") or {}
+    return {
+        "frequency": _to_int(node.get("frequency")),
+        "appears": _to_int(node.get("appears")),
+        "lastseen": node.get("lastseen"),
+        "confidence": _to_int(node.get("confidence")),
+    }
+
+
+def src_blocklistde(ip, timeout):
+    """免 key：blocklist.de 攻击举报数。"""
+    _, txt = http_get("https://api.blocklist.de/api.php?ip=%s&format=json" % ip,
+                      timeout=timeout)
+    d = _j(txt)
+    return {"attacks": _to_int(d.get("attacks")), "reports": _to_int(d.get("reports"))}
+
+
+_IPSUM_LOCK = None
+_IPSUM_DATA = None
+_IPSUM_TS = 0.0
+_IPSUM_TTL = 12 * 3600
+
+
+def _load_ipsum(timeout):
+    """下载并缓存 IPsum 聚合黑名单（ip -> 命中次数）。12h 缓存。"""
+    global _IPSUM_DATA, _IPSUM_TS
+    now = time.time()
+    if _IPSUM_DATA is not None and now - _IPSUM_TS < _IPSUM_TTL:
+        return _IPSUM_DATA
+    cache = os.path.join(tempfile.gettempdir(), "ipcheck_ipsum.txt")
+    text = None
+    if os.path.exists(cache) and now - os.path.getmtime(cache) < _IPSUM_TTL:
+        try:
+            with open(cache, "r", encoding="utf-8") as f:
+                text = f.read()
+        except Exception:
+            text = None
+    if text is None:
+        _, text = http_get("https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt",
+                           timeout=max(timeout, 30))
+        try:
+            with open(cache, "w", encoding="utf-8") as f:
+                f.write(text)
+        except Exception:
+            pass
+    data = {}
+    for line in text.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2:
+            try:
+                data[parts[0]] = int(parts[1])
+            except ValueError:
+                continue
+    _IPSUM_DATA, _IPSUM_TS = data, now
+    return data
+
+
+def src_ipsum(ip, timeout):
+    """免 key：IPsum 聚合黑名单是否命中及命中条数。"""
+    data = _load_ipsum(timeout)
+    score = data.get(ip)
+    return {"listed": score is not None, "score": score or 0,
+            "total_ips": len(data)}
+
+
 SOURCES = {
     "ipinfo": src_ipinfo,
     "ipapi": src_ipapi,
@@ -348,12 +421,17 @@ SOURCES = {
     "scamalytics": src_scamalytics,
     "iphub": src_iphub,
     "abuseipdb": src_abuseipdb,
+    "stopforumspam": src_stopforumspam,
+    "blocklistde": src_blocklistde,
+    "ipsum": src_ipsum,
 }
 
 SOURCE_LABEL = {
     "ipinfo": "ipinfo.io", "ipapi": "ip-api.com", "ipwhois": "ipwho.is",
     "proxycheck": "proxycheck.io", "scamalytics": "scamalytics.com",
     "iphub": "iphub.info", "abuseipdb": "abuseipdb.com",
+    "stopforumspam": "stopforumspam.com", "blocklistde": "blocklist.de",
+    "ipsum": "IPsum(聚合黑名单)",
 }
 
 
@@ -422,6 +500,9 @@ def aggregate(ip, results):
     ipinfo, ipapi, ipwho = srcs["ipinfo"], srcs["ipapi"], srcs["ipwhois"]
     proxycheck, scam = srcs["proxycheck"], srcs["scamalytics"]
     iphub, abuse = srcs["iphub"], srcs["abuseipdb"]
+    sfs = srcs["stopforumspam"]
+    bl = srcs["blocklistde"]
+    ipsum = srcs["ipsum"]
 
     geo = _coherent_geo(srcs)
     asn_org = _pick(ipinfo.get("asn_org"), ipapi.get("asn_org"), ipwho.get("org"),
@@ -456,7 +537,21 @@ def aggregate(ip, results):
     fraud_risk = scam.get("risk")
     abuse_conf = _to_int(abuse.get("abuse_confidence"))
 
-    risk_score, risk_level = compute_risk(fraud_score, abuse_conf, proxy, vpn, hosting, tor, mobile)
+    # 免 key 举报类渠道汇总
+    sfs_freq = _to_int(sfs.get("frequency"))
+    bl_attacks = _to_int(bl.get("attacks"))
+    ipsum_listed = bool(ipsum.get("listed"))
+    ipsum_score = _to_int(ipsum.get("score"))
+    free_pts = 0
+    if sfs_freq and sfs_freq > 0:
+        free_pts = max(free_pts, min(30, 10 + sfs_freq))
+    if bl_attacks and bl_attacks > 0:
+        free_pts = max(free_pts, min(50, 10 + bl_attacks * 5))
+    if ipsum_listed:
+        free_pts = max(free_pts, min(50, 15 + (ipsum_score or 1) * 3))
+
+    risk_score, risk_level = compute_risk(fraud_score, abuse_conf, proxy, vpn, hosting,
+                                           tor, mobile, free_pts)
 
     return {
         "ip": ip,
@@ -469,7 +564,9 @@ def aggregate(ip, results):
                    "abuse_confidence": abuse_conf,
                    "abuse_reports": _to_int(abuse.get("total_reports")),
                    "proxycheck_risk": _to_int(proxycheck.get("risk")),
-                   "iphub_block": iphub.get("block")},
+                   "iphub_block": iphub.get("block"),
+                   "sfs_frequency": sfs_freq, "bl_attacks": bl_attacks,
+                   "ipsum_listed": ipsum_listed, "ipsum_score": ipsum_score},
         "verdict": {"risk_score": risk_score, "risk_level": risk_level,
                     "label": risk_label(risk_level)},
         "conflicts": conflicts,
@@ -494,7 +591,7 @@ def _hosting_from_org(s):
     return True if any(k in low for k in CLOUD_HINTS) else None
 
 
-def compute_risk(fraud, abuse, proxy, vpn, hosting, tor, mobile):
+def compute_risk(fraud, abuse, proxy, vpn, hosting, tor, mobile, free_pts=0):
     ext = max([x for x in (fraud, abuse) if x is not None], default=0)
     pts = 0
     if proxy:
@@ -508,7 +605,7 @@ def compute_risk(fraud, abuse, proxy, vpn, hosting, tor, mobile):
     if mobile:
         pts -= 5
     pts = max(0, pts)
-    score = min(100, max(ext, pts))
+    score = min(100, max(ext, pts, free_pts))
     if score < 20:
         level = "clean"
     elif score < 50:
@@ -631,6 +728,14 @@ def render_report(agg, color=True):
     ar = sc.get("abuse_reports")
     lines.append("滥用置信度(AbuseIPDB): " + (("%d%%" % ac) if ac is not None else "—（需 ABUSEIPDB_API_KEY）") +
                  (("  报告数:%s" % ar) if ar is not None else ""))
+    free = []
+    if sc.get("sfs_frequency") is not None:
+        free.append("StopForumSpam频率:%s" % sc.get("sfs_frequency"))
+    if sc.get("bl_attacks") is not None:
+        free.append("blocklist.de攻击:%s" % sc.get("bl_attacks"))
+    if sc.get("ipsum_listed") is not None:
+        free.append("IPsum:" + ("命中(%s条)" % sc.get("ipsum_score") if sc.get("ipsum_listed") else "未命中"))
+    lines.append("滥用举报(免key)      : " + ("  ".join(free) if free else "—"))
     lines.append("-" * 60)
     verdict = "%d/100  %s" % (vd["risk_score"], vd["label"])
     lines.append("综合判定    : " + _color_level(c, vd["risk_level"], verdict))
@@ -659,6 +764,7 @@ def render_brief(agg):
         "proxy:%s vpn:%s host:%s" % (_fmt_bool(fl.get("proxy")), _fmt_bool(fl.get("vpn")), _fmt_bool(fl.get("hosting"))),
         "fraud:%s" % (fs if fs is not None else "-"),
         "abuse:%s" % ((str(abuse) + "%") if abuse is not None else "-"),
+        "ipsum:%s" % ("命中" if sc.get("ipsum_listed") else ("未" if sc.get("ipsum_listed") is not None else "-")),
         "%s %d/100" % (flag, vd["risk_score"]),
     ]
     return " | ".join(parts)
@@ -707,6 +813,41 @@ def cmd_myip(args):
         print(json.dumps({"egress_ip": ip, "via": via}, ensure_ascii=False, indent=2))
     else:
         print("当前出口 IP: " + ip + "   (来源: " + str(via) + ")")
+    return 0
+
+
+def cmd_open(args):
+    """一键打开网页并自动带上 IP（用于人工核验被 Cloudflare 拦的站点）。"""
+    import webbrowser
+    from ipaddress import ip_address
+    try:
+        ip_address(args.ip)
+    except ValueError:
+        print("非法 IP: " + args.ip, file=sys.stderr)
+        return 2
+    urls = {
+        "abuseipdb": "https://www.abuseipdb.com/check/%s" % args.ip,
+        "iphub": "https://iphub.info/?ip=%s" % args.ip,
+        "scamalytics": "https://scamalytics.com/ip/%s" % args.ip,
+        "stopforumspam": "https://www.stopforumspam.com/search?q=%s" % args.ip,
+    }
+    if args.all:
+        which = list(urls)
+    elif args.which:
+        which = [x.strip() for x in args.which.split(",") if x.strip()]
+        bad = [x for x in which if x not in urls]
+        if bad:
+            print("未知站点: %s（可选: %s）" % (",".join(bad), ",".join(urls)), file=sys.stderr)
+            return 2
+    else:
+        which = ["abuseipdb"]
+    for name in which:
+        u = urls[name]
+        print("打开 %-14s %s" % (name, u))
+        try:
+            webbrowser.open(u)
+        except Exception as e:  # noqa: BLE001
+            print("  打不开浏览器，请手动访问上面的链接（%s）" % e, file=sys.stderr)
     return 0
 
 
@@ -825,6 +966,15 @@ def cmd_check(args):
             if idx:
                 print()
             print(render_report(agg, color=color))
+        if getattr(args, "open", False):
+            import webbrowser
+            for u in ("https://www.abuseipdb.com/check/%s" % ip,
+                      "https://iphub.info/?ip=%s" % ip):
+                try:
+                    webbrowser.open(u)
+                except Exception:
+                    pass
+            print("已打开 abuseipdb / iphub 网页（IP 已带入，可人工核验）")
     return rc
 
 
@@ -835,7 +985,9 @@ def build_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="示例:\n"
                "  ipcheck check 8.8.8.8\n"
-               "  ipcheck check 8.8.8.8 1.1.1.1 --json\n"
+               "  ipcheck 8.8.8.8 --brief\n"
+               "  ipcheck 8.8.8.8 --open          # 同时打开 abuseipdb/iphub 网页(带IP)\n"
+               "  ipcheck open 8.8.8.8 --all      # 只打开网页人工核验\n"
                "  ipcheck myip\n"
                "  ipcheck stability --rounds 5 --interval 3\n"
                "  ipcheck stability --interactive\n")
@@ -847,11 +999,19 @@ def build_parser():
                     help="只用这些源，逗号分隔: " + ",".join(ALL_SOURCES))
     pc.add_argument("--json", action="store_true", help="输出 JSON")
     pc.add_argument("--brief", action="store_true", help="一行式简报")
+    pc.add_argument("--open", action="store_true", help="检测后自动打开 abuseipdb/iphub 网页(IP已带入)")
     pc.add_argument("--gateway", default=None,
                     help="走自建网关（也可用环境变量 IPCHECK_GATEWAY），客户端无需任何源 key")
     pc.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     pc.add_argument("--no-color", action="store_true")
     pc.set_defaults(func=cmd_check)
+
+    po = sub.add_parser("open", help="打开网页并自动填入 IP（人工核验用）")
+    po.add_argument("ip")
+    po.add_argument("--all", action="store_true", help="打开全部站点")
+    po.add_argument("--which", default=None,
+                    help="指定站点，逗号分隔: abuseipdb,iphub,scamalytics,stopforumspam")
+    po.set_defaults(func=cmd_open)
 
     pm = sub.add_parser("myip", help="查看当前出口 IP")
     pm.add_argument("--json", action="store_true")
@@ -875,7 +1035,7 @@ def main(argv=None):
     _setup_console()
     argv = argv if argv is not None else sys.argv[1:]
     # 简化：允许直接 `ipcheck.py 8.8.8.8`（等价于 check）
-    if argv and argv[0] not in ("check", "myip", "stability", "-h", "--help") and not argv[0].startswith("-"):
+    if argv and argv[0] not in ("check", "myip", "stability", "open", "-h", "--help") and not argv[0].startswith("-"):
         argv = ["check"] + argv
     p = build_parser()
     if not argv:
