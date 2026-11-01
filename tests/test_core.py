@@ -275,6 +275,19 @@ class TestProbe(unittest.TestCase):
         self.assertEqual(r["layer"], "dns")
         self.assertIsNotNone(r["error"])
 
+    def test_probe_data_is_json_serializable(self):
+        import json
+        import ipcheck_lib.cli as C
+        import ipcheck_lib.probe as P
+        row = {"site": "x", "verdict": "连接成功(未验证登录/功能)", "detail": "HTTP 200",
+               "status": 200, "url": "u", "note": "", "layers": None}
+        with mock.patch.object(P, "egress_via", lambda proxy, timeout: "1.2.3.4"), \
+                mock.patch.object(P, "run_probe", lambda **k: [row]):
+            d = C._probe_data("http://p:1", "1.2.3.4", None, 5)
+        self.assertEqual(d["egress"], "1.2.3.4")
+        self.assertEqual(d["targets"][0]["site"], "x")
+        json.dumps(d)  # 不抛异常即说明可结构化
+
 
 class TestP0Guards(unittest.TestCase):
     def test_private_ip_skips_public_query(self):

@@ -231,6 +231,12 @@ def cmd_check(args):
                 agg["regions"] = compute_regions(agg.get("geo") or {})
             except Exception:
                 agg["regions"] = None
+        probe_d = None
+        if getattr(args, "probe", False):
+            probe_d = _probe_data(
+                getattr(args, "proxy", None) or os.environ.get("IPCHECK_PROXY", "").strip() or None,
+                ip, None, args.timeout)
+            agg["probe"] = probe_d  # 结构化进 JSON，不污染 stdout
         csv_rows.append(_agg_to_row(agg))
         if args.json:
             print(render_json(agg))
@@ -248,6 +254,9 @@ def cmd_check(args):
                     print(extra)
             if agg.get("regions"):
                 print(render_regions(agg["regions"]))
+            if probe_d:
+                print()
+                _render_probe(probe_d)
         if getattr(args, "open", False):
             import webbrowser
             for u in ("https://www.abuseipdb.com/check/%s" % ip,
@@ -257,10 +266,6 @@ def cmd_check(args):
                 except Exception:
                     pass
             print("已打开 abuseipdb / iphub 网页（IP 已带入，可人工核验）")
-        if getattr(args, "probe", False):
-            print()
-            _print_probe(getattr(args, "proxy", None) or os.environ.get("IPCHECK_PROXY", "").strip() or None,
-                         ip, None, args.timeout)
     if getattr(args, "csv", None):
         try:
             write_csv(csv_rows, args.csv)
@@ -337,22 +342,100 @@ def cmd_watch(args):
         print("\n监控已停止")
     return 0
 
-def _print_probe(proxy, expect_ip, only, timeout):
+_PROBE_SCEN = {
+    "general": None,
+    "browse": ["google", "x", "tiktok"],
+    "ai": ["openai", "anthropic", "chatgpt"],
+    "stream": ["netflix"],
+    "account": ["google", "x"],
+    "call": ["google"],
+}
+
+
+def _probe_data(proxy, expect_ip, only, timeout):
     egress = _probe.egress_via(proxy, timeout) if proxy else get_egress_ip(timeout)[0]
-    print("实测出口 IP: %s%s" % (egress or "未知", "（经代理）" if proxy else "（本机直连）"))
+    guard = None
     if expect_ip and egress and expect_ip != egress:
-        print("⚠️ 出口(%s) ≠ 目标(%s)：这是 %s 的实测结果，不能归因到 %s"
-              % (egress, expect_ip, egress, expect_ip))
+        guard = "出口(%s) ≠ 目标(%s)，实测结论只归因于 %s" % (egress, expect_ip, egress)
     rows = _probe.run_probe(proxy=proxy, only=only, timeout=timeout)
+    return {"mode": "proxy" if proxy else "direct", "egress": egress, "guard": guard, "targets": rows}
+
+
+def _render_probe(d):
+    print("实测出口 IP: %s（%s）" % (d.get("egress") or "未知",
+                                "经代理" if d.get("mode") == "proxy" else "本机直连"))
+    if d.get("guard"):
+        print("⚠️ " + d["guard"])
     print("站点              状态                            详情")
-    for r in rows:
+    for r in d.get("targets", []):
         print("  %-12s %-28s %s" % (r["site"], r["verdict"], r["detail"]))
     print("说明: 200≠功能可用；403≠封号；401 可能只是没带 key；未登录/未付费，仅只读探测。")
 
 
 def cmd_probe(args):
     only = [x.strip() for x in args.only.split(",") if x.strip()] if args.only else None
-    _print_probe(args.proxy, args.expect_ip, only, args.timeout)
+    d = _probe_data(args.proxy, args.expect_ip, only, args.timeout)
+    if getattr(args, "json", False):
+        print(json.dumps(d, ensure_ascii=False, indent=2))
+    else:
+        _render_probe(d)
+    return 0
+
+
+def cmd_node(args):
+    """面向用途的节点体检：出口一致性/短时稳定性 + 场景目标实测 + 与证据匹配的建议。"""
+    proxy = args.proxy or os.environ.get("IPCHECK_PROXY", "").strip() or None
+    scen = args.scenario or "general"
+    only = _PROBE_SCEN.get(scen)
+    samples = max(1, args.samples)
+    egress_list = []
+    for i in range(samples):
+        e = _probe.egress_via(proxy, args.timeout) if proxy else get_egress_ip(args.timeout)[0]
+        egress_list.append(e)
+        if i < samples - 1:
+            time.sleep(args.interval)
+    uniq = sorted({x for x in egress_list if x})
+    stable = bool(egress_list) and all(egress_list) and len(uniq) == 1
+    egress = egress_list[0] if egress_list else None
+    guard = None
+    if args.expect_ip and egress and egress != args.expect_ip:
+        guard = "出口(%s) ≠ 目标(%s)" % (egress, args.expect_ip)
+    rows = _probe.run_probe(proxy=proxy, only=only, timeout=args.timeout)
+
+    bad_region = [r for r in rows if "地区限制" in r["verdict"]]
+    challenge = [r for r in rows if "人机" in r["verdict"]]
+    fail = [r for r in rows if "连接失败" in r["verdict"]]
+    advice = []
+    if not stable:
+        advice.append("出口在短时采样中变化（%s）：长期账号/支付前应先解决出口稳定性。" % (",".join(uniq) or "未知"))
+    if bad_region:
+        advice.append("端点报告地区限制（%s）：当前出口不适合该端点。" % ",".join(r["site"] for r in bad_region))
+    if challenge:
+        advice.append("遇到人机验证（≠封号，%s）：可换出口或降低频率。" % ",".join(r["site"] for r in challenge))
+    if fail and not bad_region:
+        advice.append("部分目标连接失败（%s）：检查节点连通性。" % ",".join(r["site"] for r in fail))
+    if not advice:
+        advice.append("已测目标可达（未验证登录/业务功能）；短时结果不代表长期稳定。")
+
+    data = {"scenario": scen, "mode": "proxy" if proxy else "direct", "egress": egress,
+            "egress_samples": egress_list, "stable": stable, "guard": guard,
+            "targets": rows, "advice": advice}
+    if getattr(args, "json", False):
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0
+    print("节点体检（场景：%s）" % scen)
+    print("出口: %s（%s，%d 次采样 %s）" % (
+        egress or "未知", "经代理" if proxy else "本机直连", samples,
+        "稳定" if stable else "有变化: " + (",".join(uniq) or "未知")))
+    if guard:
+        print("⚠️ %s —— 实测只归因于实际出口" % guard)
+    print("场景目标:")
+    for r in rows:
+        print("  %-12s %-28s %s" % (r["site"], r["verdict"], r["detail"]))
+    print("建议:")
+    for a in advice:
+        print("  - " + a)
+    print("说明: 短时实测，不等于长期表现；不预测封号/账号安全。")
     return 0
 
 
@@ -462,7 +545,19 @@ def build_parser():
     pp.add_argument("--only", default=None, help="只测这些站点，逗号分隔: " + ",".join(_probe.TARGETS))
     pp.add_argument("--timeout", type=float, default=10)
     pp.add_argument("--no-color", action="store_true")
+    pp.add_argument("--json", action="store_true", help="输出结构化 JSON（不混排版文本）")
     pp.set_defaults(func=cmd_probe)
+
+    pn = sub.add_parser("node", help="面向用途的节点体检：出口一致性/稳定性 + 场景目标实测 + 建议")
+    pn.add_argument("--proxy", default=None, help="经此 HTTP 代理出口，如 http://host:port")
+    pn.add_argument("--expect-ip", default=None, help="期望出口 IP；不符会告警")
+    pn.add_argument("--scenario", default="general",
+                    choices=list(_PROBE_SCEN), help="用途场景")
+    pn.add_argument("--samples", type=int, default=3, help="出口采样次数")
+    pn.add_argument("--interval", type=int, default=2, help="采样间隔秒")
+    pn.add_argument("--timeout", type=float, default=10)
+    pn.add_argument("--json", action="store_true")
+    pn.set_defaults(func=cmd_node)
 
     ph = sub.add_parser("health", help="源健康检查：逐源探测可用性/延迟（上游失效显式降级）")
     ph.add_argument("--ip", default="8.8.8.8", help="探针 IP")
@@ -475,7 +570,7 @@ def main(argv=None):
     _setup_console()
     argv = argv if argv is not None else sys.argv[1:]
     # 简化：允许 `ipcheck.py 8.8.8.8` 或 `ipcheck.py --file x.txt`（等价于 check）
-    if argv and argv[0] not in ("check", "myip", "stability", "open", "watch", "probe", "health",
+    if argv and argv[0] not in ("check", "myip", "stability", "open", "watch", "probe", "node", "health",
                                 "-h", "--help", "--version", "-V"):
         argv = ["check"] + argv
     p = build_parser()

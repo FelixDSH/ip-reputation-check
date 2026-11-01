@@ -207,7 +207,8 @@ $env:ABUSEIPDB_API_KEY="你的key"
 ```
 ipcheck check <IP...> [--file F] [--csv out.csv] [--json] [--brief] [--open] [--env] [--no-platforms] [--regions] [--probe] [--proxy URL] [--interval S] [--only ...] [--gateway URL]
 ipcheck open <IP> [--all] [--which abuseipdb,iphub,scamalytics,stopforumspam]
-ipcheck probe [--proxy URL] [--expect-ip IP] [--only google,openai,x,...] [--timeout 10]
+ipcheck probe [--proxy URL] [--expect-ip IP] [--only google,openai,x,...] [--timeout 10] [--json]
+ipcheck node [--proxy URL] [--expect-ip IP] [--scenario browse|ai|stream|account|call|general] [--samples 3] [--json]
 ipcheck health [--ip IP] [--only src,...]        # 源健康检查（可用性/延迟）
 ipcheck myip [--json]        # 出口 IP + 环境一致性
 ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only ...]
@@ -496,6 +497,28 @@ python scripts/ipcheck.py 1.2.3.4 --probe --proxy http://host:port
 直连模式还会给出**逐层分解**：`DNS 7ms/TCP 0ms/TLS 1544ms · HTTP 204`（代理模式由代理完成握手，只报 HTTP）。
 
 > **HTTP 200 ≠ 功能可用；403 ≠ 封号；401 可能只是没带 key。** 默认不登录/不注册/不付款、只读、少量请求。出口与目标不一致时，实测结论只代表实际出口那个 IP。
+
+## 节点体检（面向用途，P2+）
+
+只查 IP 无法回答"这个节点能不能用"。`node` 在当前出口（或 `--proxy`）上做**出口一致性 + 短时稳定性 + 场景目标实测**，并给跟证据匹配的建议：
+
+```bash
+python scripts/ipcheck.py node --scenario browse          # 社媒/网页
+python scripts/ipcheck.py node --scenario ai --proxy http://host:port --expect-ip 1.2.3.4
+```
+
+场景：`browse`(google/x/tiktok) / `ai`(openai/anthropic/chatgpt) / `stream`(netflix) / `account` / `call`。
+
+输出示例：
+```
+节点体检（场景：browse）
+出口: 212.x（本机直连，2 次采样 稳定）
+场景目标: google 连接成功 · x 连接成功 · tiktok 连接成功
+建议: 已测目标可达（未验证登录/业务功能）；短时结果不代表长期稳定。
+说明: 短时实测，不等于长期表现；不预测封号/账号安全。
+```
+
+> **IP 质量 ≠ 节点质量 ≠ 账号安全**：IP 查询只覆盖属性/历史；节点质量靠实测（连通/延迟/稳定）；账号安全靠行为/设备/服务政策，不能用 IP 分数保证。`--json` 输出恒为可解析 JSON（探测数据在同一结构里，诊断写 stderr）。
 
 ## 风险判定模型
 
