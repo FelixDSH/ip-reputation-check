@@ -356,6 +356,34 @@ def cmd_probe(args):
     return 0
 
 
+def cmd_health(args):
+    """逐源健康检查：探测每个源是否可用及延迟（上游失效/限流的显式降级）。"""
+    ip = args.ip or "8.8.8.8"
+    names = [n for n in (args.only or _sources.ALL_SOURCES) if n in _sources.SOURCES]
+
+    def one(n):
+        t0 = time.time()
+        try:
+            _sources.SOURCES[n](ip, args.timeout)
+            return (n, True, int((time.time() - t0) * 1000), "")
+        except Exception as e:  # noqa: BLE001
+            return (n, False, int((time.time() - t0) * 1000), str(e)[:90])
+
+    rows = {}
+    with cf.ThreadPoolExecutor(max_workers=min(len(names), 10) or 1) as ex:
+        for r in ex.map(one, names):
+            rows[r[0]] = r
+    print("源健康检查 (探针 IP=%s, 超时=%.0fs)" % (ip, args.timeout))
+    print("  %-18s %-6s %-7s %s" % ("源", "状态", "耗时", "错误"))
+    okn = 0
+    for n in names:
+        _, ok, ms, err = rows[n]
+        okn += 1 if ok else 0
+        print("  %-18s %-6s %-7s %s" % (n, "OK" if ok else "FAIL", "%dms" % ms, err))
+    print("正常 %d/%d（FAIL 的源在检测中会自动跳过并标注，不会影响其它源）" % (okn, len(names)))
+    return 0
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="ipcheck",
@@ -435,13 +463,19 @@ def build_parser():
     pp.add_argument("--timeout", type=float, default=10)
     pp.add_argument("--no-color", action="store_true")
     pp.set_defaults(func=cmd_probe)
+
+    ph = sub.add_parser("health", help="源健康检查：逐源探测可用性/延迟（上游失效显式降级）")
+    ph.add_argument("--ip", default="8.8.8.8", help="探针 IP")
+    ph.add_argument("--only", type=_parse_only, default=None, help="只检查这些源")
+    ph.add_argument("--timeout", type=float, default=8)
+    ph.set_defaults(func=cmd_health)
     return p
 
 def main(argv=None):
     _setup_console()
     argv = argv if argv is not None else sys.argv[1:]
     # 简化：允许 `ipcheck.py 8.8.8.8` 或 `ipcheck.py --file x.txt`（等价于 check）
-    if argv and argv[0] not in ("check", "myip", "stability", "open", "watch", "probe",
+    if argv and argv[0] not in ("check", "myip", "stability", "open", "watch", "probe", "health",
                                 "-h", "--help", "--version", "-V"):
         argv = ["check"] + argv
     p = build_parser()

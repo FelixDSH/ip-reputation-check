@@ -86,6 +86,9 @@ python scripts/ipcheck.py watch --egress --interval 30
 python scripts/ipcheck.py probe --only google,openai,x,netflix
 python scripts/ipcheck.py probe --proxy http://host:port --expect-ip <IP>
 
+# 源健康检查（上游失效/限流时显式发现，自动跳过失败源）
+python scripts/ipcheck.py health
+
 # 看当前出口 IP
 python scripts/ipcheck.py myip
 

@@ -1,0 +1,1 @@
+{"handle": "NET-8-8-8-0-2", "name": "GOGL", "startAddress": "8.8.8.0", "endAddress": "8.8.8.255", "country": "US", "status": ["active"], "entities": [{"roles": ["registrant"], "vcardArray": ["vcard", [["fn", {}, "text", "Google LLC"]]]}]}

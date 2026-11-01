@@ -48,7 +48,9 @@ tests/  (test_core.py, test_consistency.py)
 
 ```bash
 python tests/test_core.py          # 核心逻辑单测：各源 parser、_vote 冲突、geo 选取、评分阈值、置信度平票、CSV 注入、iphub 分支
+python tests/test_fixtures.py      # 固定响应快照(test_fixtures/fixtures) 的解析回归
 python tests/test_consistency.py   # 10 种 IP 类型 × 文案自洽性
+python scripts/ipcheck.py health    # 源健康检查：逐源探测可用性/延迟（上游失效显式降级）
 ```
 CI（`.github/workflows/ci.yml`）在 push/PR 时跑 **Python 3.8 / 3.10 / 3.12 + Windows** 矩阵，并做 `--version`/`--help` 冒烟。
 
@@ -204,6 +206,7 @@ $env:ABUSEIPDB_API_KEY="你的key"
 ipcheck check <IP...> [--file F] [--csv out.csv] [--json] [--brief] [--open] [--env] [--no-platforms] [--regions] [--probe] [--proxy URL] [--interval S] [--only ...] [--gateway URL]
 ipcheck open <IP> [--all] [--which abuseipdb,iphub,scamalytics,stopforumspam]
 ipcheck probe [--proxy URL] [--expect-ip IP] [--only google,openai,x,...] [--timeout 10]
+ipcheck health [--ip IP] [--only src,...]        # 源健康检查（可用性/延迟）
 ipcheck myip [--json]        # 出口 IP + 环境一致性
 ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only ...]
 ipcheck watch [IP...] [--egress] [--interval 60] [--rounds N]   # 监控变化/漂移
