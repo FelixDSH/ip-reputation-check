@@ -409,6 +409,18 @@ class TestP0Guards(unittest.TestCase):
         self.assertEqual(agg["network"]["cloud"], "Google")
         self.assertIn("机房", agg["ip_type"])
 
+    def test_field_sources_applicability(self):
+        # 地理字段不采用代理库；每个字段带 applicability
+        results = [{"source": "ipinfo", "ok": True,
+                    "data": {"country": "US", "country_code": "US", "asn_org": "AS15169 Google LLC"}, "error": None},
+                   {"source": "proxycheck", "ok": True,
+                    "data": {"proxy": True, "type": "VPN", "country_code": "US"}, "error": None}]
+        agg = ic.aggregate("1.2.3.4", results)
+        geo_src = agg["evidence"]["geo"]["sources"]
+        self.assertIn("ipinfo.io", geo_src)
+        self.assertNotIn("proxycheck.io", geo_src)   # 地理字段不使用代理库
+        self.assertIn("数据库标签", agg["evidence"]["proxy"]["applicability"])
+
     def test_spamhaus_transient_is_unknown(self):
         import socket
         def again(*a, **k):

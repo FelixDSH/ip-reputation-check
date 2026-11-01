@@ -195,6 +195,14 @@ def render_report(agg, color=True):
     if ev:
         lines.append("证据强度    :")
         lines.extend(ev)
+    evd = agg.get("evidence") or {}
+    if evd:
+        parts = []
+        for k, cn in (("geo", "地理"), ("proxy", "代理"), ("vpn", "VPN"),
+                      ("hosting", "托管"), ("tor", "Tor"), ("abuse", "滥用")):
+            e = evd.get(k) or {}
+            parts.append("%s[%s]" % (cn, ",".join(e.get("sources") or []) or "-"))
+        lines.append("字段来源    : " + "  ".join(parts))
     for note in agg.get("conflicts", []):
         lines.append(c.dim("备注        : " + note))
     lines.append("-" * 60)

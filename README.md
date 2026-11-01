@@ -486,6 +486,7 @@ python scripts/ipcheck.py watch --egress --interval 30
 ```
 - **RDAP ≠ BGP ≠ 实际使用者**：登记归属（谁登记）、路由归属（谁宣告）、实际使用（谁在用）三者不一致不一定异常。
 - **云厂商识别**：按 ASN / 组织名映射常见云（AWS / GCP / Azure / Cloudflare / DigitalOcean / OVH / Hetzner / Vultr / Oracle / 阿里 / 腾讯 等），命中即判"机房/云"。
+- **按字段适用来源**：不是"全局谁最权威"，而是字段级——地理只用地基库（maxmind/dbip/ipinfo/ipapi/ipwhois）、代理/VPN 只用专用库、Tor 用官方名单、滥用用名单/社区。JSON `evidence` 里每个字段列出"适用来源 + 性质 + 强度"。
 - **时间与状态可追溯**：每条证据在 JSON `sources[]` 里带 `query_time / status(ok|empty|error) / data_time`；报告顶部标"查询时间"。注意"查询时间"≠"数据更新时间"。
 - **Tor 官方名单**优先于社区标记；未命中≠不是任何代理。
 - 证据强度是"来源等级 × 一致度"，不是统计置信区间。

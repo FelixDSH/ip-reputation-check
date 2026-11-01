@@ -19,7 +19,7 @@ import urllib.request
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/125.0 Safari/537.36")
 
-VERSION = "1.0.11"
+VERSION = "1.0.12"
 
 DEFAULT_TIMEOUT = 12
 
@@ -110,6 +110,24 @@ SOURCE_TIER = {
 
 TIER_WEIGHT = {"A": 3, "B": 2, "C": 1}
 
+# 按字段指定"适用来源"（字段级用途，而非全局权威排名）
+FIELD_SOURCES = {
+    "geo": ["maxmind", "dbip", "ipinfo", "ipapi", "ipwhois"],
+    "proxy": ["proxycheck", "iphub", "ipapi"],
+    "vpn": ["proxycheck", "iphub"],
+    "hosting": ["ipapi", "proxycheck", "iphub"],
+    "tor": ["tor_exit", "abuseipdb", "iphub"],
+    "abuse": ["spamhaus", "virustotal", "abuseipdb", "stopforumspam", "blocklistde", "ipsum"],
+}
+FIELD_APPLICABILITY = {
+    "geo": "地理数据库(定位，非物理位置)",
+    "proxy": "代理数据库标签(非实测；标记为VPN≠实际是VPN)",
+    "vpn": "VPN 数据库标签(非实测)",
+    "hosting": "托管数据库标签(非实测)",
+    "tor": "官方出口名单/数据库标记",
+    "abuse": "黑名单/社区上报",
+}
+
 # 常见云/机房厂商 ASN → 名称（用于"云厂商"识别与 hosting 证据；非穷尽，未知则按组织名关键字推断）
 CLOUD_ASN_MAP = {
     15169: "Google", 396982: "Google Cloud", 16509: "AWS", 14618: "AWS",
@@ -124,7 +142,9 @@ CLOUD_ASN_MAP = {
 DECISION_LABEL = {"ok": "✅ 较适合", "warn": "⚠️ 谨慎", "no": "⛔ 风险高"}
 
 
-__all__ = ['UA', 'VERSION', 'DEFAULT_TIMEOUT', 'RISK_W_PROXY', 'RISK_W_VPN', 'RISK_W_HOSTING', 'RISK_W_TOR', 'RISK_W_MOBILE', 'RISK_T_CLEAN', 'RISK_T_LOW', 'RISK_T_MEDIUM', 'CLOUD_HINTS', 'PLATFORM_PROFILES', 'AI_RESTRICTED', 'PLATFORMS', 'SERVICE_REGIONS', 'SOURCE_LABEL', 'SOURCE_TIER', 'TIER_WEIGHT', 'DECISION_LABEL', 'CLOUD_ASN_MAP']
+__all__ = ['UA', 'VERSION', 'DEFAULT_TIMEOUT', 'RISK_W_PROXY', 'RISK_W_VPN', 'RISK_W_HOSTING', 'RISK_W_TOR', 'RISK_W_MOBILE', 'RISK_T_CLEAN', 'RISK_T_LOW', 'RISK_T_MEDIUM', 'CLOUD_HINTS', 'PLATFORM_PROFILES', 'AI_RESTRICTED', 'PLATFORMS', 'SERVICE_REGIONS', 'SOURCE_LABEL', 'SOURCE_TIER', 'TIER_WEIGHT', 'DECISION_LABEL', 'CLOUD_ASN_MAP', 'FIELD_SOURCES', 'FIELD_APPLICABILITY']
+
+
 
 
 

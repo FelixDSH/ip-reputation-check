@@ -356,15 +356,10 @@ def aggregate(ip, results):
     risk_score, risk_level = compute_risk(fraud_score, abuse_for_risk, proxy, vpn, hosting,
                                            tor, mobile, free_pts)
 
-    # 置信度：源等级 × 多源一致度
-    geo_votes = [
-        ("maxmind", srcs["maxmind"].get("country_code")),
-        ("dbip", srcs["dbip"].get("country_code")),
-        ("ipinfo", ipinfo.get("country")),
-        ("ipapi", ipapi.get("country_code")),
-        ("ipwhois", ipwho.get("country_code")),
-        ("proxycheck", proxycheck.get("country_code")),
-    ]
+    # 置信度：只用"该字段适用来源"（字段级用途，而非全局权威排名）
+    def _geo_val(s):
+        return srcs[s].get("country_code") or srcs[s].get("country")
+    geo_votes = [(s, _geo_val(s)) for s in FIELD_SOURCES["geo"]]
     if spamhaus_malicious or (vt_mal and vt_mal > 0):
         conf_abuse = {"level": "high", "note": "权威源命中"}
     elif (abuse_conf and abuse_conf > 0) or (sfs_freq and sfs_freq > 0) or \
@@ -427,6 +422,24 @@ def aggregate(ip, results):
             # 证据不充分 → 不生成平台"绿色"建议
             platform_fit, platforms, decisions = [], [], []
 
+    def _used(votes):
+        return [SOURCE_LABEL.get(s, s) for s, v in votes if v is not None]
+    evidence = {
+        "geo": {"sources": _used(geo_votes), "applicability": FIELD_APPLICABILITY["geo"],
+                "level": confidence["geo"].get("level"), "value": confidence["geo"].get("value")},
+        "proxy": {"sources": _used(proxy_votes), "applicability": FIELD_APPLICABILITY["proxy"],
+                  "level": confidence["proxy"].get("level"), "value": proxy},
+        "vpn": {"sources": _used(vpn_votes), "applicability": FIELD_APPLICABILITY["vpn"],
+                "level": confidence["vpn"].get("level"), "value": vpn},
+        "hosting": {"sources": _used(hosting_votes), "applicability": FIELD_APPLICABILITY["hosting"],
+                    "level": confidence["hosting"].get("level"), "value": hosting},
+        "tor": {"sources": ([SOURCE_LABEL.get("tor_exit", "tor_exit")]
+                            if (get.get("tor_exit") and get["tor_exit"]["ok"]) else []),
+                "applicability": FIELD_APPLICABILITY["tor"], "value": tor},
+        "abuse": {"sources": [SOURCE_LABEL.get(s, s) for s in FIELD_SOURCES["abuse"] if _ok(s)],
+                  "applicability": FIELD_APPLICABILITY["abuse"], "level": conf_abuse.get("level")},
+    }
+
     stale_sources = [{"source": r["source"], "fetched_at": r.get("query_time"),
                       "stale_seconds": r.get("stale_seconds")}
                      for r in results if r.get("cache_status") == "expired_refresh_failed"]
@@ -466,6 +479,7 @@ def aggregate(ip, results):
         "verdict": {"risk_score": risk_score, "risk_level": risk_level,
                     "label": risk_label(risk_level)},
         "confidence": confidence,
+        "evidence": evidence,
         "stale_sources": stale_sources,
         "platform_fit": platform_fit,
         "platforms": platforms,
