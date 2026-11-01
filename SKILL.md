@@ -38,11 +38,13 @@ license: MIT
 当用户给出 IP（一个或多个）时，运行：
 
 ```bash
-python <skill_dir>/scripts/ipcheck.py check <IP> [<IP2> ...]
+python <skill_dir>/scripts/ipcheck.py <IP> [<IP2> ...]
 ```
 
-1. 直接执行，不要反问、不要先讲注意事项。
-2. 把命令输出（报表）原样或整理成要点回复给用户。
+（也支持显式 `check` 子命令；直接给 IP 即可。）
+
+1. 直接执行，不要反问问、不要先讲注意事项。
+2. 把命令输出（报表）原样或整理成要点回复给用户；想更精简可加 `--brief`（一行式）。
 3. 多 IP 时逐行/逐段列出，每个 IP 单独给结论。
 4. 需要结构化数据或二次处理时加 `--json`。
 5. 若某源被跳过（如未配 abuseipdb key），在结尾说明"缺哪个 key 可补哪个指标"，不要因此中止。
@@ -50,14 +52,13 @@ python <skill_dir>/scripts/ipcheck.py check <IP> [<IP2> ...]
 ### 常用命令
 
 ```bash
-# 单 IP 完整检测（人读报表）
-python scripts/ipcheck.py check 8.8.8.8
-
-# 多 IP + JSON（便于程序消费）
-python scripts/ipcheck.py check 8.8.8.8 1.1.1.1 --json
+# 单/多 IP 完整检测（直接给 IP 即可）
+python scripts/ipcheck.py 8.8.8.8
+python scripts/ipcheck.py 8.8.8.8 1.1.1.1 --brief   # 一行式简报
+python scripts/ipcheck.py 8.8.8.8 --json            # 结构化输出
 
 # 只跑部分源（更快）
-python scripts/ipcheck.py check 1.2.3.4 --only ipapi,proxycheck,scamalytics
+python scripts/ipcheck.py 1.2.3.4 --only ipapi,proxycheck,scamalytics
 
 # 看当前出口 IP
 python scripts/ipcheck.py myip

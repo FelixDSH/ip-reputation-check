@@ -304,7 +304,7 @@ def src_iphub(ip, timeout):
 def src_abuseipdb(ip, timeout):
     key = os.environ.get("ABUSEIPDB_API_KEY", "").strip()
     if not key:
-        raise RuntimeError("未配置 ABUSEIPDB_API_KEY，跳过")
+        raise RuntimeError("需免费 ABUSEIPDB_API_KEY（网页人工可查，程序化被 Cloudflare 拦，注册免费 1000/天）")
     url = ("https://api.abuseipdb.com/api/v2/check?ipAddress=%s"
            "&maxAgeInDays=90&verbose=true" % urllib.parse.quote(ip))
     _, txt = http_get(url, headers={"Key": key, "Accept": "application/json"},
@@ -629,6 +629,23 @@ def render_report(agg, color=True):
     return "\n".join(lines)
 
 
+def render_brief(agg):
+    """一行式简报，便于快速扫读。"""
+    geo, net, fl, sc, vd = agg["geo"], agg["network"], agg["flags"], agg["scores"], agg["verdict"]
+    loc = ",".join([x for x in [geo.get("country"), geo.get("city")] if x]) or "-"
+    abuse = sc.get("abuse_confidence")
+    fs = sc.get("fraud_score")
+    flag = {"clean": "🟢", "low": "🟡", "medium": "🟠", "high": "🔴"}.get(vd["risk_level"], "")
+    parts = [
+        agg["ip"], loc, (net.get("asn_org") or "-"),
+        "proxy:%s vpn:%s host:%s" % (_fmt_bool(fl.get("proxy")), _fmt_bool(fl.get("vpn")), _fmt_bool(fl.get("hosting"))),
+        "fraud:%s" % (fs if fs is not None else "-"),
+        "abuse:%s" % ((str(abuse) + "%") if abuse is not None else "-"),
+        "%s %d/100" % (flag, vd["risk_score"]),
+    ]
+    return " | ".join(parts)
+
+
 def render_json(agg):
     return json.dumps(agg, ensure_ascii=False, indent=2)
 
@@ -784,6 +801,8 @@ def cmd_check(args):
             agg = check_ip(ip, only=args.only, timeout=args.timeout)
         if args.json:
             print(render_json(agg))
+        elif getattr(args, "brief", False):
+            print(render_brief(agg))
         else:
             if idx:
                 print()
@@ -809,6 +828,7 @@ def build_parser():
     pc.add_argument("--only", type=_parse_only, default=None,
                     help="只用这些源，逗号分隔: " + ",".join(ALL_SOURCES))
     pc.add_argument("--json", action="store_true", help="输出 JSON")
+    pc.add_argument("--brief", action="store_true", help="一行式简报")
     pc.add_argument("--gateway", default=None,
                     help="走自建网关（也可用环境变量 IPCHECK_GATEWAY），客户端无需任何源 key")
     pc.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
@@ -835,6 +855,9 @@ def build_parser():
 
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
+    # 简化：允许直接 `ipcheck.py 8.8.8.8`（等价于 check）
+    if argv and argv[0] not in ("check", "myip", "stability", "-h", "--help") and not argv[0].startswith("-"):
+        argv = ["check"] + argv
     p = build_parser()
     if not argv:
         p.print_help()

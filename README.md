@@ -5,6 +5,23 @@
 
 ![demo](examples/demo.txt)
 
+## 极简用法
+
+**在对话里直接把 IP 发出来就行**（agent 加载本 skill 后会自动执行），或本地一条命令：
+
+```bash
+python scripts/ipcheck.py 8.8.8.8            # 直接给 IP，无需子命令
+python scripts/ipcheck.py 8.8.8.8 --brief    # 一行式简报
+```
+
+默认**零配置**即可运行（5 个免 key 源）。只有需要下面两项额外指标时，才各自配**自己的**免费 key：
+
+| 你想要 | 额外条件 |
+|--------|----------|
+| 基础判定：位置 / ASN / 代理 / VPN / 机房 / 欺诈分 / 综合风险 | 无，直接跑 |
+| iphub：代理类型细分（住宅/机房/住宅代理） | 免费 `IPHUB_API_KEY`；或本机跑 `scripts/iphub_browser.py` 人工过验证 |
+| abuseipdb：滥用置信度 | 免费 `ABUSEIPDB_API_KEY`（**网页人工输入 IP 免 key 可看，但程序化访问被 Cloudflare 拦，只能走免费 API**） |
+
 ## 为什么做这个
 
 做跨境网络 / 代理 / 机场选型时，判断一个 IP 干不干净，通常要挨个打开
