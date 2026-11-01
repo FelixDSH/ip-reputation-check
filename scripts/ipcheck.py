@@ -72,7 +72,8 @@ def _setup_console():
 
 DEFAULT_TIMEOUT = 12
 ALL_SOURCES = ["ipinfo", "ipapi", "ipwhois", "proxycheck", "scamalytics",
-               "iphub", "abuseipdb", "stopforumspam", "blocklistde", "ipsum"]
+               "iphub", "abuseipdb", "stopforumspam", "blocklistde", "ipsum",
+               "spamhaus", "virustotal"]
 
 # 云/机房组织关键字（辅助判断 hosting）
 CLOUD_HINTS = ("amazon", "aws", "google", "microsoft", "azure", "digitalocean",
@@ -413,6 +414,52 @@ def src_ipsum(ip, timeout):
             "total_ips": len(data)}
 
 
+def src_spamhaus(ip, timeout):
+    """免 key：Spamhaus ZEN DNSBL（SBL/XBL/PBL，权威反垃圾/被入侵源名单）。"""
+    from ipaddress import ip_address
+    try:
+        a = ip_address(ip)
+    except ValueError:
+        raise RuntimeError("非法 IP")
+    if a.version != 4:
+        raise RuntimeError("Spamhaus DNSBL 仅支持 IPv4")
+    rev = ".".join(reversed(ip.split("."))) + ".zen.spamhaus.org"
+    old = socket.getdefaulttimeout()
+    try:
+        socket.setdefaulttimeout(min(timeout, 8))
+        ans = socket.gethostbyname(rev)
+    except socket.gaierror:
+        return {"listed": False, "zones": [], "answer": None}
+    finally:
+        socket.setdefaulttimeout(old)
+    if ans.startswith("127.255.255."):
+        raise RuntimeError("Spamhaus 拒绝当前 DNS 出口（公共解析器/超量），请直连或降低频率")
+    code_map = {
+        "127.0.0.2": "SBL", "127.0.0.3": "XBL/CSS", "127.0.0.4": "PBL",
+        "127.0.0.5": "PBL", "127.0.0.6": "PBL", "127.0.0.7": "PBL",
+        "127.0.0.9": "DROP", "127.0.0.10": "PBL", "127.0.0.11": "PBL",
+    }
+    zones = [code_map[ans]] if ans in code_map else []
+    listed = ans.startswith("127.0.0.")
+    return {"listed": listed, "zones": zones, "answer": ans}
+
+
+def src_virustotal(ip, timeout):
+    """可选 key：VirusTotal 70+ 引擎聚合判定（免费 key 限速 4/分）。"""
+    key = os.environ.get("VIRUSTOTAL_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError("未配置 VIRUSTOTAL_API_KEY（免费注册可查 70+ 引擎）")
+    _, txt = http_get("https://www.virustotal.com/api/v3/ip_addresses/%s" % ip,
+                      headers={"x-apikey": key}, timeout=timeout)
+    d = _j(txt).get("data", {}).get("attributes", {})
+    st = d.get("last_analysis_stats") or {}
+    return {
+        "malicious": st.get("malicious"), "suspicious": st.get("suspicious"),
+        "harmless": st.get("harmless"), "undetected": st.get("undetected"),
+        "reputation": d.get("reputation"), "as_owner": d.get("as_owner"),
+    }
+
+
 SOURCES = {
     "ipinfo": src_ipinfo,
     "ipapi": src_ipapi,
@@ -424,6 +471,8 @@ SOURCES = {
     "stopforumspam": src_stopforumspam,
     "blocklistde": src_blocklistde,
     "ipsum": src_ipsum,
+    "spamhaus": src_spamhaus,
+    "virustotal": src_virustotal,
 }
 
 SOURCE_LABEL = {
@@ -431,8 +480,18 @@ SOURCE_LABEL = {
     "proxycheck": "proxycheck.io", "scamalytics": "scamalytics.com",
     "iphub": "iphub.info", "abuseipdb": "abuseipdb.com",
     "stopforumspam": "stopforumspam.com", "blocklistde": "blocklist.de",
-    "ipsum": "IPsum(聚合黑名单)",
+    "ipsum": "IPsum(聚合黑名单)", "spamhaus": "Spamhaus DNSBL",
+    "virustotal": "VirusTotal",
 }
+
+# 源等级：A=权威/商业数据源，B=专业检测，C=社区/聚合（仅供参考）
+SOURCE_TIER = {
+    "ipinfo": "A", "spamhaus": "A", "virustotal": "A",
+    "ipapi": "B", "proxycheck": "B", "blocklistde": "B",
+    "ipwhois": "C", "iphub": "C", "scamalytics": "C",
+    "abuseipdb": "C", "stopforumspam": "C", "ipsum": "C",
+}
+TIER_WEIGHT = {"A": 3, "B": 2, "C": 1}
 
 
 def _to_int(v):
@@ -492,6 +551,46 @@ def _vote(conflicts, flag_name, votes):
     return val
 
 
+def _conf_bool(votes):
+    """布尔型结论的置信度：按源等级加权求一致度。"""
+    known = [(s, v) for s, v in votes if v is not None]
+    if not known:
+        return {"level": "unknown", "n": 0}
+    tw = sum(TIER_WEIGHT.get(SOURCE_TIER.get(s, "C"), 1) for s, _ in known)
+    tw_true = sum(TIER_WEIGHT.get(SOURCE_TIER.get(s, "C"), 1) for s, v in known if v)
+    maj = max(tw_true, tw - tw_true)
+    ratio = (maj / tw) if tw else 0
+    n = len(known)
+    if n >= 2 and ratio >= 0.75:
+        lvl = "high"
+    elif n >= 2 and ratio >= 0.6:
+        lvl = "medium"
+    else:
+        lvl = "low"
+    return {"level": lvl, "n": n, "value": tw_true >= (tw - tw_true)}
+
+
+def _conf_cat(votes):
+    """类别型结论（如国家）的置信度：按源等级加权求众数占比。"""
+    known = [(s, str(v).upper()) for s, v in votes if v]
+    if not known:
+        return {"level": "unknown", "n": 0}
+    weights = {}
+    for s, v in known:
+        weights[v] = weights.get(v, 0) + TIER_WEIGHT.get(SOURCE_TIER.get(s, "C"), 1)
+    total = sum(weights.values())
+    val, top = max(weights.items(), key=lambda kv: kv[1])
+    ratio = (top / total) if total else 0
+    n = len(known)
+    if n >= 2 and ratio >= 0.75:
+        lvl = "high"
+    elif n >= 2 and ratio >= 0.6:
+        lvl = "medium"
+    else:
+        lvl = "low"
+    return {"level": lvl, "n": n, "value": val}
+
+
 def aggregate(ip, results):
     get = {r["source"]: r for r in results}
     srcs = {name: (get[name]["data"] if get.get(name) and get[name]["ok"] else {})
@@ -513,29 +612,36 @@ def aggregate(ip, results):
 
     conflicts = []
     # 代理：优先专用代理库 proxycheck，其次 iphub，最后 ip-api
-    proxy = _vote(conflicts, "Proxy", [
+    proxy_votes = [
         ("proxycheck", proxycheck.get("proxy")),
         ("iphub", iphub.get("proxy")),
         ("ipapi", ipapi.get("proxy")),
-    ])
+    ]
+    proxy = _vote(conflicts, "Proxy", proxy_votes)
     # VPN
-    vpn = _vote(conflicts, "VPN", [
+    vpn_votes = [
         ("proxycheck", proxycheck.get("vpn")),
         ("iphub", (True if iphub.get("block") in (1,) else None)),
-    ])
+    ]
+    vpn = _vote(conflicts, "VPN", vpn_votes)
     # 托管：ip-api 的 hosting 最直接，其次 proxycheck 类型，最后按组织关键字推断
-    hosting = _vote(conflicts, "Hosting", [
+    hosting_votes = [
         ("ipapi", ipapi.get("hosting")),
         ("proxycheck", proxycheck.get("hosting")),
         ("iphub", iphub.get("hosting")),
         ("ipinfo", _hosting_from_org(asn_org or isp)),
-    ])
+    ]
+    hosting = _vote(conflicts, "Hosting", hosting_votes)
     mobile = ipapi.get("mobile") if ipapi.get("mobile") is not None else None
     tor = _pick_bool(abuse.get("is_tor"), iphub.get("tor"))
 
     fraud_score = _to_int(scam.get("fraud_score"))
     fraud_risk = scam.get("risk")
     abuse_conf = _to_int(abuse.get("abuse_confidence"))
+
+    spamhaus, vt = srcs["spamhaus"], srcs["virustotal"]
+    spamhaus_listed = bool(spamhaus.get("listed"))
+    vt_mal = _to_int(vt.get("malicious"))
 
     # 免 key 举报类渠道汇总
     sfs_freq = _to_int(sfs.get("frequency"))
@@ -550,8 +656,40 @@ def aggregate(ip, results):
     if ipsum_listed:
         free_pts = max(free_pts, min(50, 15 + (ipsum_score or 1) * 3))
 
-    risk_score, risk_level = compute_risk(fraud_score, abuse_conf, proxy, vpn, hosting,
+    # 权威滥用信号并入风险（Spamhaus / VirusTotal 权重最高）
+    cands = []
+    if abuse_conf is not None:
+        cands.append(abuse_conf)
+    if spamhaus_listed:
+        cands.append(90)
+    if vt_mal:
+        cands.append(min(100, 30 + vt_mal * 10))
+    abuse_for_risk = max(cands) if cands else None
+
+    risk_score, risk_level = compute_risk(fraud_score, abuse_for_risk, proxy, vpn, hosting,
                                            tor, mobile, free_pts)
+
+    # 置信度：源等级 × 多源一致度
+    geo_votes = [
+        ("ipinfo", ipinfo.get("country")),
+        ("ipapi", ipapi.get("country_code")),
+        ("ipwhois", ipwho.get("country_code")),
+        ("proxycheck", proxycheck.get("country_code")),
+    ]
+    if spamhaus_listed or (vt_mal and vt_mal > 0):
+        conf_abuse = {"level": "high", "note": "权威源命中"}
+    elif (abuse_conf and abuse_conf > 0) or (sfs_freq and sfs_freq > 0) or \
+            (bl_attacks and bl_attacks > 0) or ipsum_listed:
+        conf_abuse = {"level": "medium", "note": "仅社区/聚合命中"}
+    else:
+        conf_abuse = {"level": "low", "note": "无命中≠安全"}
+    confidence = {
+        "geo": _conf_cat(geo_votes),
+        "proxy": _conf_bool(proxy_votes),
+        "vpn": _conf_bool(vpn_votes),
+        "hosting": _conf_bool(hosting_votes),
+        "abuse": conf_abuse,
+    }
 
     return {
         "ip": ip,
@@ -566,9 +704,12 @@ def aggregate(ip, results):
                    "proxycheck_risk": _to_int(proxycheck.get("risk")),
                    "iphub_block": iphub.get("block"),
                    "sfs_frequency": sfs_freq, "bl_attacks": bl_attacks,
-                   "ipsum_listed": ipsum_listed, "ipsum_score": ipsum_score},
+                   "ipsum_listed": ipsum_listed, "ipsum_score": ipsum_score,
+                   "spamhaus_listed": spamhaus_listed, "spamhaus_zones": spamhaus.get("zones"),
+                   "vt_malicious": vt_mal, "vt_reputation": vt.get("reputation")},
         "verdict": {"risk_score": risk_score, "risk_level": risk_level,
                     "label": risk_label(risk_level)},
+        "confidence": confidence,
         "conflicts": conflicts,
         "sources": results,
     }
@@ -736,9 +877,27 @@ def render_report(agg, color=True):
     if sc.get("ipsum_listed") is not None:
         free.append("IPsum:" + ("命中(%s条)" % sc.get("ipsum_score") if sc.get("ipsum_listed") else "未命中"))
     lines.append("滥用举报(免key)      : " + ("  ".join(free) if free else "—"))
+    auth = []
+    if sc.get("spamhaus_listed") is not None:
+        if sc.get("spamhaus_listed"):
+            z = sc.get("spamhaus_zones") or []
+            auth.append("Spamhaus:命中" + (("(%s)" % "/".join(z)) if z else ""))
+        else:
+            auth.append("Spamhaus:未命中")
+    if sc.get("vt_malicious") is not None:
+        auth.append("VirusTotal:恶意%s" % sc.get("vt_malicious"))
+    if auth:
+        lines.append("权威滥用源  : " + "  ".join(auth))
     lines.append("-" * 60)
     verdict = "%d/100  %s" % (vd["risk_score"], vd["label"])
     lines.append("综合判定    : " + _color_level(c, vd["risk_level"], verdict))
+    conf = agg.get("confidence") or {}
+
+    def _cl(k):
+        return {"high": "高", "medium": "中", "low": "低", "unknown": "未知"}.get(
+            (conf.get(k) or {}).get("level"), "-")
+    lines.append("置信度      : 地理:%s  代理:%s  VPN:%s  托管:%s  滥用:%s"
+                 % (_cl("geo"), _cl("proxy"), _cl("vpn"), _cl("hosting"), _cl("abuse")))
     for note in agg.get("conflicts", []):
         lines.append(c.dim("备注        : " + note))
     lines.append("-" * 60)

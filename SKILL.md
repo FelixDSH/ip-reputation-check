@@ -7,7 +7,8 @@ description: >-
   proxycheck、代理检测、VPN检测、机场IP、出口IP、IP稳定性、家宽/机房判断、fraud score、
   abuse confidence、IP risk、check my IP、is this IP clean。
   一次输入即可并发聚合 ipinfo.io、ip-api.com、ipwho.is、proxycheck.io、scamalytics.com，
-  可选接入 iphub.info、abuseipdb.com，给出位置/ASN/代理标记/欺诈分/滥用置信度/综合风险判定。
+  可选接入 iphub.info、abuseipdb.com、Spamhaus DNSBL、VirusTotal，给出位置/ASN/代理标记/欺诈分/滥用置信度/综合风险判定，
+  并标注每个维度的置信度（高/中/低）。定位为「多源聚合初筛」，非权威风控判定。
 license: MIT
 ---
 
@@ -92,6 +93,7 @@ python scripts/ipcheck.py check <IP> --gateway http://GATEWAY:8787
 | 欺诈分 | Scamalytics Fraud Score（0–100，越高越脏） |
 | 滥用置信度 | AbuseIPDB confidence（0–100%，需 key） |
 | 综合判定 | 综合外部分与代理/VPN/Tor 信号计算的 0–100 风险分与等级 |
+| 置信度 | 地理/代理/VPN/托管/滥用 各自的 高/中/低：源等级 × 多源一致度。低=单一源或有冲突；滥用"低"≠干净 |
 
 判定等级：`<20 🟢 干净` / `20–49 🟡 中低` / `50–79 🟠 中高` / `≥80 🔴 高`。
 
@@ -106,7 +108,8 @@ python scripts/ipcheck.py check <IP> --gateway http://GATEWAY:8787
 - 免费源有速率限制（ip-api 45 次/分、proxycheck 免 key 约 100 次/天），批量检测请加 `--interval` 或配 key。
 - **人机验证**：ipinfo / ip-api / ipwho.is / proxycheck / scamalytics 都是干净的 JSON 接口，无验证码；只有 **iphub 游客接口**（可能弹 Cloudflare Turnstile）和 **abuseipdb 网页版**（403）会拦。对策按优先级：① 配免费 `IPHUB_API_KEY` / `ABUSEIPDB_API_KEY`（彻底免验证码，首选）；② `python scripts/iphub_browser.py <IP>` 用真实 Chrome 人工过验证；③ 设 `IPHUB_TURNSTILE_TOKEN` 或接打码服务。详见 README「人机验证」章节。
 - 判定为"代理/VPN/机房"不等于恶意；很多 CDN（如 Cloudflare、Google DNS）也会被标 hosting。
-- **滥用举报不止 AbuseIPDB**：AbuseIPDB 需免费 key；免 key 的 StopForumSpam / blocklist.de / IPsum 已自动包含并计入风险。想直接看 AbuseIPDB 网页用 `python scripts/ipcheck.py open <IP>`（自动带入 IP）。
+- **滥用举报不止 AbuseIPDB**：AbuseIPDB 需免费 key；免 key 的 StopForumSpam / blocklist.de / IPsum / Spamhaus DNSBL 已自动包含并计入风险。想直接看 AbuseIPDB 网页用 `python scripts/ipcheck.py open <IP>`（自动带入 IP）。
+- **不是权威**：本工具是多源聚合初筛，按源等级（A 权威/B 专业/C 社区）和一致度给置信度。汇报时要如实说明置信度，不要把它当风控定论。
 
 ## 作为 skill 安装
 

@@ -1,7 +1,9 @@
 # ip-reputation-check
 
-> 一条命令，多源并发把一个 IP 的「地理 / ASN / 代理 / VPN / 机房 / 欺诈分 / 滥用记录 / 综合风险」一次查清。
-> 纯 Python 标准库实现，可作为 **skill** 被任意 agent 加载：对话里输入一个 IP，直接返回检测结果。
+> 一条命令，多源并发把一个 IP 的「地理 / ASN / 代理 / VPN / 机房 / 欺诈分 / 滥用记录 / 综合风险」一次查清，
+> 并给出**每个维度的置信度（高/中/低）**。纯 Python 标准库，可作为 **skill** 被任意 agent 加载。
+>
+> ⚠️ **定位：多源聚合初筛 + 置信度提示，不是权威风控判定。** 免费源精度有限，重要决策请交叉验证或改用商业 API（见下文权威替代）。
 
 ![demo](examples/demo.txt)
 
@@ -67,6 +69,8 @@ ipinfo.io、iphub.info、scamalytics.com、abuseipdb.com 手动输入——非�
 | stopforumspam.com | 垃圾信息 / 滥用举报频率 | 否 |
 | blocklist.de | 攻击举报数 | 否 |
 | IPsum（GitHub） | 聚合黑名单命中条数 | 否 |
+| **Spamhaus DNSBL** | SBL/XBL/PBL 权威反滥用名单 | 否（DNS 低量） |
+| **VirusTotal** | 70+ 引擎聚合恶意判定 | 可选 `VIRUSTOTAL_API_KEY` |
 
 缺 key 的源会自动跳过并在报告里标注，不影响其它指标。
 
@@ -141,7 +145,7 @@ ipcheck myip [--json]
 ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only ...]
 ```
 
-`--only` 可选值：`ipinfo,ipapi,ipwhois,proxycheck,scamalytics,iphub,abuseipdb,stopforumspam,blocklistde,ipsum`
+`--only` 可选值：`ipinfo,ipapi,ipwhois,proxycheck,scamalytics,iphub,abuseipdb,stopforumspam,blocklistde,ipsum,spamhaus,virustotal`
 
 客户端相关环境变量：`IPCHECK_GATEWAY`（网关地址）、`IPCHECK_GATEWAY_TOKEN`（网关令牌）。
 服务端（网关）相关：`IPHUB_API_KEY`、`ABUSEIPDB_API_KEY`、`IPINFO_TOKEN`、`GATEWAY_TOKEN`。
@@ -252,11 +256,34 @@ python scripts/ipcheck.py check 8.8.8.8
 网关内置：**TTL 缓存**（同 IP 在 TTL 内只查一次，省额度）、**每 IP 每分钟限流**、可选**访问令牌**。
 接口：`GET /check?ip=8.8.8.8` → 聚合 JSON；`GET /health` → 健康检查。
 
+## 源权威度 & 置信度（重要）
+
+**没有任何单一网站是「权威真相」。** 本项目把源分成三档，并按「源等级 × 多源一致度」给每个维度打置信度：
+
+| 档 | 含义 | 本工具中的源 |
+|----|------|--------------|
+| **A 权威/商业** | 正规数据源，可信度高 | ipinfo、Spamhaus、VirusTotal |
+| **B 专业** | 专用检测，较可信 | ip-api、proxycheck、blocklist.de |
+| **C 社区/聚合** | 参考信号，噪声较大 | ipwho.is、iphub、scamalytics、AbuseIPDB、StopForumSpam、IPsum |
+
+报表会输出：`置信度: 地理:高 代理:中 VPN:低 托管:高 滥用:低`
+- **高** = 多个（含高等级）源结果一致；**中** = 基本一致但有分歧；**低** = 单一源或源间冲突。
+- **滥用为「低」只代表没有权威源命中，不等于干净**（AbuseIPDB 官方也强调 0 报告 ≠ 安全）。
+
+### 能做什么 / 不能做什么
+- ✅ 快速初筛：这 IP 大概在哪、是不是代理/机房、有没有被拉黑。
+- ✅ 多源对比 + 冲突提示：让你知道**这个结论有多可信**，而不是假装权威。
+- ❌ 不能当风控/封禁的唯一依据；地理城市级只有 ~50–80% 准确；住宅代理必然有漏报。
+
+### 想要更高可信度 → 换商业 API
+`MaxMind GeoIP2 / minFraud`、`IPQualityScore`、`Spur`、`VirusTotal`、`Spamhaus`、`Cisco Talos` 才适合严谨风控。
+
 ## 风险判定模型
 
-- 外部分：取 Scamalytics 欺诈分与 AbuseIPDB 置信度的较大值（0–100）。
+- 外部分：取 Scamalytics 欺诈分、AbuseIPDB 置信度、Spamhaus 命中(≈90)、VirusTotal 恶意数换算 的较大值（0–100）。
+- 免 key 举报信号：StopForumSpam 频率、blocklist.de 攻击数、IPsum 命中也会抬高风险。
 - 信号分：Proxy +30、VPN +35、Hosting +10、Tor +60、Mobile −5。
-- 综合风险分 = min(100, max(外部分, 信号分))；等级 `<20` 干净、`20–49` 中低、`50–79` 中高、`≥80` 高。
+- 综合风险分 = min(100, max(外部分, 信号分, 举报分))；等级 `<20` 干净、`20–49` 中低、`50–79` 中高、`≥80` 高。
 - 源间冲突（例如 ip-api 说 proxy、proxycheck 说 no）会在报告「备注」中说明，并按可信源优先级取值。
 
 ## 作为 agent skill 使用
