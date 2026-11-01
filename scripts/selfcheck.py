@@ -22,7 +22,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 TESTS = ["test_core.py", "test_cache.py", "test_counterexamples.py",
-         "test_fixtures.py", "test_contract.py", "test_consistency.py"]
+         "test_fixtures.py", "test_contract.py", "test_docs.py", "test_consistency.py"]
 
 
 def run_tests():

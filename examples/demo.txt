@@ -1,7 +1,7 @@
 ﻿============================================================
 IP 信誉检测报告  212.68.185.88
 ============================================================
-查询时间    : 2026-11-01T22:53:24+0800（各源响应时间见 JSON sources.query_time）
+查询时间    : 2026-11-02T01:03:58+0800（各源响应时间见 JSON sources.query_time）
 位置        : Japan Kanagawa Kawasaki   时区 Asia/Tokyo
 ASN / 组织  : AS58325 Hydra Communications Ltd
 ISP         : Hydra Communications Ltd
@@ -24,7 +24,8 @@ IP 类型     : VPN
   代理 =是 强度:中 支持:proxycheck.io,ip-api.com 反对:-
   VPN=是 强度:低 支持:proxycheck.io 反对:-
   托管 =否 强度:中 支持:ip-api.com,proxycheck.io 反对:-
-  地理 =JP 强度:高 支持:DB-IP,ipinfo.io,ip-api.com,ipwho.is,proxycheck.io 反对:-
+  地理 =JP 强度:高 支持:DB-IP,ipinfo.io,ip-api.com,ipwho.is 反对:-
+字段来源    : 地理[DB-IP,ipinfo.io,ip-api.com,ipwho.is]  代理[proxycheck.io,ip-api.com]  VPN[proxycheck.io]  托管[ip-api.com,proxycheck.io]  Tor[Tor官方出口]  滥用[stopforumspam.com,blocklist.de,IPsum(聚合黑名单)]
 ------------------------------------------------------------
 平台适配度(启发式,非平台真实判定):
   🔴 易触发风控  社交媒体(X/FB/IG/TikTok)  代理, VPN
@@ -41,7 +42,7 @@ IP 类型     : VPN
   ⚠️ 谨慎  流媒体解锁          VPN 可能被封（Netflix 等），需实测
 ------------------------------------------------------------
 数据源 成功 : ipinfo.io, ip-api.com, ipwho.is, proxycheck.io, scamalytics.com, stopforumspam.com, blocklist.de, IPsum(聚合黑名单), DB-IP, RDAP(登记), RIPEstat(BGP), Tor官方出口
-数据源 跳过 : iphub.info(需人机验证(Turnstile)：配 IPHUB_API_KEY，或运行 scripts/iphub_browser.py <IP>，或设 IPHUB_TURNSTILE_TOKEN（详见 README「人机验证」）), abuseipdb.com(需免费 ABUSEIPDB_API_KEY（网页人工可查，程序化被 Cloudflare 拦，注册免费 1000/天）), Spamhaus DNSBL(DNS 返回异常(198.18.0.11)，疑似 Fake-IP/本地代理 DNS，Spamhaus 结果不可信), VirusTotal(未配置 VIRUSTOTAL_API_KEY（免费注册可查 70+ 引擎）), MaxMind GeoLite2(未配置 MaxMind：运行 scripts/setup_geoip.py --license-key KEY 下载库，或设 GEOIP2_MMDB)
+数据源 跳过 : iphub.info(需人机验证(Turnstile)：配 IPHUB_API_KEY，或运行 scripts/iphub_browser.py <IP>，或设 IPHUB_TURNSTILE_TOKEN（详见 README「人机验证」）), abuseipdb.com(需免费 ABUSEIPDB_API_KEY（网页人工可查，程序化被 Cloudflare 拦，注册免费 1000/天）), Spamhaus DNSBL(系统DNS为Fake-IP(198.18.0.11)，公网DoH无法给出权威结论；结果未知（关闭 Fake-IP/改用 ISP DNS，或配 ABUSEIPDB_API_KEY）), VirusTotal(未配置 VIRUSTOTAL_API_KEY（免费注册可查 70+ 引擎）), MaxMind GeoLite2(未配置 MaxMind：运行 scripts/setup_geoip.py --license-key KEY 下载库，或设 GEOIP2_MMDB)
 ℹ️ 多源规则初筛，非概率、非实测；“干净/风险”仅表示证据倾向，不等于安全结论。
 ============================================================
 站点适配度(规则推算,非实测; 红灯=机房/代理/VPN 易触发风控，不代表一定不可用或会封号):

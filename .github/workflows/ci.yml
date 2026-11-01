@@ -30,6 +30,8 @@ jobs:
         run: python tests/test_cache.py
       - name: 上游契约检测
         run: python tests/test_contract.py
+      - name: 文档漂移检测
+        run: python tests/test_docs.py
       - name: IP 类型 × 文案一致性自检
         run: python tests/test_consistency.py
       - name: CLI 冒烟

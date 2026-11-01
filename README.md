@@ -2,618 +2,138 @@
 
 **中文** | [English](README.en.md)
 
-> 一条命令，多源并发把一个 IP 的「地理 / ASN / 代理 / VPN / 机房 / 欺诈分 / 滥用记录 / 综合风险」一次查清，
-> 并给出**每个维度的置信度（高/中/低）**。纯 Python 标准库，可作为 **skill** 被任意 agent 加载。
+> 多源 IP 查询 + 当前出口验证 + 面向用途的节点体检。给一个 IP 或一个节点，快速得到**可核对的多维证据**与**常用站点可达性**。
 >
-> ⚠️ **定位：多源聚合初筛 + 置信度提示，不是权威风控判定。** 免费源精度有限，重要决策请交叉验证或改用商业 API（见下文权威替代）。
+> ⚠️ 定位：**多源聚合初筛 + 证据分级**，不是权威风控/安全鉴定；免费源精度有限，重要决策请交叉验证或用商业 API（MaxMind / IPQualityScore / Spur / VirusTotal / Spamhaus 等）。
 
-示例输出见 [examples/demo.txt](examples/demo.txt)。
+完整示例输出见 [examples/demo.txt](examples/demo.txt)（由当前代码生成，非手写）。
 
 ## 极简用法
 
-**在对话里直接把 IP 发出来就行**（agent 加载本 skill 后会自动执行），或本地一条命令：
-
 ```bash
-python scripts/ipcheck.py 8.8.8.8            # 直接给 IP，无需子命令
+python scripts/ipcheck.py 8.8.8.8            # 直接给 IP（默认零配置）
 python scripts/ipcheck.py 8.8.8.8 --brief    # 一行式简报
 ```
 
-默认**零配置**即可运行（约 10 个免 key 源：地理/代理/欺诈/滥用多源聚合）。只有需要下面两项额外指标时，才各自配**自己的**免费 key：
+默认免 key 即可出：位置 / ASN / 机房·代理·VPN / 欺诈分 / 免 key 滥用名单 / 规则提示分 / 置信度。需要更多精度时可选配自己的免费 key（见「可选 Key」）。
 
-| 你想要 | 额外条件 |
-|--------|----------|
-| 基础判定：位置 / ASN / 代理 / VPN / 机房 / 欺诈分 / 综合风险 | 无，直接跑 |
-| 其他滥用举报信号（StopForumSpam / blocklist.de / IPsum） | 无，自动显示 |
-| iphub：代理类型细分（住宅/机房/住宅代理） | 免费 `IPHUB_API_KEY`；或本机跑 `scripts/iphub_browser.py` 人工过验证 |
-| abuseipdb：滥用置信度 | 免费 `ABUSEIPDB_API_KEY`；或 `ipcheck.py open <IP>` 打开网页人工看（网页免 key） |
+## 核心能力
 
-## 项目结构（已拆包）
+- **多源聚合**（17 个源）：地理、ASN、代理/VPN/机房、欺诈分、滥用名单、RDAP 登记、BGP 路由、Tor 官方出口。
+- **证据可追溯**：每字段列出「适用来源 + 支持/反对 + 强度」；登记(RDAP) 与路由(BGP) 分开；`标记为VPN ≠ 实际是VPN`。
+- **不误导**：数据不足/空响应 → `⚪ 无法判定`（绝不判"干净"）；DNSBL 临时失败→未知；Fake-IP→DoH 兜底但只信命中；私有/保留地址本地跳过。
+- **实测（可选）**：`probe / node / compare / history` 从出口或代理真实只读探测；严格区分"规则推算"与"实测"。
+- **实用运维**：批量 `--file`、CSV、监控 `watch`、源健康 `health`、来源级缓存、一键自检 `selfcheck`。
 
-```
-scripts/
-├── ipcheck.py            # 入口 shim（向后兼容，所有 ipcheck.<name> 仍可用）
-└── ipcheck_lib/
-    ├── constants.py      # 版本/权重/平台·服务规则库等常量
-    ├── http.py           # HTTP/JSON、DNS 查询、通用取值助手
-    ├── sources.py        # 14 个情报源适配器 + 注册表
-    ├── scoring.py        # 聚合、风险评分、置信度、类型/平台决策
-    ├── render.py         # 报表 / 简报 / JSON 渲染
-    ├── env.py            # 出口 IP、时区/DNS 环境一致性
-    ├── csvio.py          # 批量 CSV 导出、地区可用性
-    └── cli.py            # 子命令与参数解析
-gateway.py / setup_geoip.py / iphub_browser.py   # 独立工具
-tests/  (test_core.py, test_consistency.py)
-```
-入口仍是 `scripts/ipcheck.py`；`build.ps1` 用 PyInstaller onefile 打单文件 exe，兼顾"拆包维护"与"单文件分发"。
-
-## 自检 / 测试
+## 命令速查
 
 ```bash
-python scripts/selfcheck.py          # 一键自检：跑全部离线测试 + 在线冒烟（私有地址/JSON/最小真实查询）
-python tests/test_core.py            # 核心逻辑单测
-python tests/test_counterexamples.py # 之前审计反例的硬性回归（空数据/仅地理/仅RDAP/空字段/DNS临时失败/探针误判/JSON）
-python tests/test_fixtures.py        # 固定响应快照解析回归
-python tests/test_cache.py           # 来源级缓存/时间元数据（命中/自然过期后刷新/刷新穿透名单缓存/超期不参与/条目校验/IPv6/损坏/无密钥，14 项）
-python tests/test_contract.py        # 上游契约：验证码/软封200/错误页/字段缺失/越界/名单HTML 不得解析成功（含 abnormal fixtures）
-python tests/test_consistency.py     # 10 种 IP 类型 × 文案自洽性
-python scripts/ipcheck.py health      # 源健康检查
-```
-CI（`.github/workflows/ci.yml`）在 push/PR 时跑 **Python 3.8 / 3.10 / 3.12 + Windows** 矩阵，并做 `--version`/`--help` 冒烟。
+# 被动查询
+python scripts/ipcheck.py check <IP...> [--file F] [--csv out.csv] [--json] [--brief] \
+       [--env] [--regions] [--no-platforms] [--refresh] [--interval S] [--only ...] [--gateway URL]
 
-## 环境要求（用户要装什么？）
+# 实测（需从该出口/代理发起；默认关）
+python scripts/ipcheck.py probe  [--proxy URL] [--expect-ip IP] [--only google,openai,x,...] [--json]
+python scripts/ipcheck.py node   [--proxy URL] [--expect-ip IP] [--scenario browse|ai|stream|account|call|general] [--samples 3] [--save] [--json]
+python scripts/ipcheck.py compare --nodes "http://p1,http://p2" [--scenario ai] [--json]
+python scripts/ipcheck.py history [--node X] [--scenario ai] [--last 5]
 
-**基础检测的唯一硬性依赖是 Python 3.8+，而且不用 `pip` 装任何第三方库**（全部标准库）。不需要 Node、不需要浏览器。
-
-| 使用方式 | 用户需要什么 |
-|----------|--------------|
-| 作为 agent skill 调起（Claude Code / Codex / 通用 agents） | 只要运行 agent 的机器有 **Python 3.8+** |
-| 自己命令行运行 | **Python 3.8+**（无需 pip 装包） |
-| 给非技术用户 / 不想装 Python（Windows） | 用打包好的 **`dist/ipcheck.exe`** 单文件，双击或 `ipcheck.exe 8.8.8.8`，**完全不需要 Python** |
-| 完全零安装、多人共用 | 部署一台 `gateway.py` + 网页，用户只用浏览器 |
-
-> 只有当你额外使用 `--browser` / `iphub_browser.py`（用真实浏览器过 iphub 验证码）时，才需要 Playwright + 本机 Chrome；基础检测不需要。
-
-### 自己打 Windows 免安装 exe
-
-```powershell
-./build.ps1           # 产出 dist/ipcheck.exe（单文件，约 9MB）
-# 或手动：
-python -m pip install pyinstaller
-python -m PyInstaller --onefile --name ipcheck --distpath dist --workpath build --specpath build scripts/ipcheck.py
+# 运维
+python scripts/ipcheck.py myip            # 出口 IP + 时区/DNS 环境一致性
+python scripts/ipcheck.py health          # 逐源健康检查（可用性/延迟）
+python scripts/ipcheck.py open <IP>       # 打开已填 IP 的 abuseipdb/iphub 网页
+python scripts/ipcheck.py stability [--rounds N] [--interactive]
+python scripts/ipcheck.py watch [IP...] [--egress] [--interval 60]
+python scripts/selfcheck.py               # 一键自检：全部离线测试 + 在线冒烟
 ```
 
-打出来后分发 `dist/ipcheck.exe` 即可，对方无需安装任何东西（Windows 直接运行）。
+`--only` 源：`ipinfo,ipapi,ipwhois,proxycheck,scamalytics,iphub,abuseipdb,stopforumspam,blocklistde,ipsum,spamhaus,virustotal,dbip,maxmind,rdap,ripe_bgp,tor_exit`
 
-### 地理升级到 MaxMind GeoLite2（免费、最权威）
+## 输出说明
 
-不配置时已用 **DB-IP（免 key）** 交叉校验地理。想要"最权威"再接 MaxMind GeoLite2：
-
-1. 免费注册 MaxMind → 生成 License Key： https://www.maxmind.com/en/geolite2/signup
-2. `pip install maxminddb`
-3. `python scripts/setup_geoip.py --license-key YOUR_KEY`（自动下载到 `data/`）
-4. 之后 ipcheck 自动生效（或 `set GEOIP2_MMDB=<路径>`）
-
-> 国内下载慢可挂代理，或手动把 `GeoLite2-City.mmdb` 放进 `data/` 目录即可。
-
-## 为什么做这个
-
-做跨境网络 / 代理 / 机场选型时，判断一个 IP 干不干净，通常要挨个打开
-ipinfo.io、iphub.info、scamalytics.com、abuseipdb.com 手动输入——非常繁琐。
-本项目把这些源聚合成一次调用，并额外提供**出口 IP 稳定性测试**（断开重连前后比对）。
+| 项目 | 含义 |
+|---|---|
+| 位置 / ASN / ISP / 云厂商 | 地理数据库 + 登记/路由；云厂商=按 ASN/组织名推断（非已确认用途） |
+| IP 类型 | 住宅 / 移动 / 机房·云 / 企业 / 教育 / 政府 / Tor / VPN / 代理；仅按可用证据判定 |
+| 代理 / VPN / 托管 / Tor | **数据库/规则标签，非实测**（"标记为VPN"≠"实际是VPN"） |
+| 欺诈分 / 滥用置信度 | Scamalytics Fraud Score；AbuseIPDB（需 key）；Spamhaus（DNSBL，区分恶意/策略名单/PBL） |
+| 规则提示分 | 经验加权**规则分，非概率**；数据不足=无法判定 |
+| 置信度 + 证据强度 + 字段来源 | 源等级×一致度；每字段支持/反对来源；按字段适用来源 |
+| 平台/站点适配度 | 规则推算，非实测；红灯=易触发风控，不代表一定不可用/会封号 |
+| 使用建议 | 能否注册/养号/爬虫/支付/流媒体（启发式，随证据匹配） |
 
 ## 数据源
 
-| 源 | 提供 | 是否需要 Key |
-|----|------|--------------|
-| ipinfo.io | 地理 / ASN / Org / 主机名 | 否（可配 `IPINFO_TOKEN` 提额） |
-| ip-api.com | 地理 + proxy / hosting / mobile 标记 | 否 |
-| ipwho.is | 地理 / ASN（备用源） | 否 |
-| proxycheck.io | proxy / VPN / 网络类型 / risk | 否（免 key 有日限） |
-| scamalytics.com | Fraud Score + 风险等级 | 否（网页解析；可配 API） |
-| iphub.info | block 等级 + proxyType（proxy/tor/hosting/residentialProxy） | 游客免 key（高信誉出口直出，机房可能触发 Turnstile）；推荐 `IPHUB_API_KEY` |
-| abuseipdb.com | Abuse Confidence / 报告数 | 是：`ABUSEIPDB_API_KEY` |
-| stopforumspam.com | 垃圾信息 / 滥用举报频率 | 否 |
-| blocklist.de | 攻击举报数 | 否 |
-| IPsum（GitHub） | 聚合黑名单命中条数 | 否 |
-| **Spamhaus DNSBL** | SBL/XBL/DROP=恶意(垃圾邮件/被入侵/攻击)；PBL=发信策略(非恶意行为) | 否（DNS 低量） |
-| **VirusTotal** | 70+ 引擎聚合恶意判定 | 可选 `VIRUSTOTAL_API_KEY` |
-| **DB-IP** | 地理（正规数据商，免 key 交叉源） | 否 |
-| **MaxMind GeoLite2** | 地理（最权威，本地库） | 免费 License Key + `maxminddb` |
-| **RDAP（RIR 登记）** | 地址登记组织 / 分配范围 / 状态（"分配给谁"） | 否 |
-| **RIPEstat（BGP）** | 当前是否宣告 / 覆盖前缀 / 起源 ASN（"路由归属"） | 否 |
-| **Tor 官方出口** | 是否在某时点的 Tor 出口名单中 | 否 |
+| 源 | 提供 | Key |
+|---|---|---|
+| ipinfo / ip-api / ipwho.is | 地理 / ASN（ip-api 含 proxy/hosting 标记） | 免 |
+| proxycheck | 代理 / VPN / 类型 | 免（有日限） |
+| scamalytics | 欺诈分（网页解析/API） | 免 / 可选 API |
+| iphub | 代理分级 | 游客免（可能 Turnstile）/ 推荐 key |
+| AbuseIPDB | 滥用置信度 | 需 `ABUSEIPDB_API_KEY` |
+| StopForumSpam / blocklist.de / IPsum | 垃圾信息 / 攻击 / 聚合黑名单 | 免 |
+| Spamhaus DNSBL | SBL/XBL/DROP=恶意；PBL=发信策略 | 免（DNS） |
+| VirusTotal | 多引擎 | 可选 `VIRUSTOTAL_API_KEY` |
+| DB-IP / MaxMind GeoLite2 | 地理（后者最权威，本地库） | 免 / 免费 License + maxminddb |
+| RDAP / RIPEstat / Tor 官方出口 | 登记 / 路由 / Tor 名单 | 免 |
 
-缺 key 的源会自动跳过并在报告里标注，不影响其它指标。
-Spamhaus 走 DNS 查询：若本机用 Clash/Surge 等 **Fake-IP** 模式，系统 DNS 会被劫持成 `198.18.x.x`，导致 DNSBL 不可信。工具会：**自动用 DoH 兜底——只采信"命中"（强证据），公网 DoH 的"否定"不作权威"未上榜"，一律判"未知"**；并提示"关闭 Fake-IP/改用 ISP DNS，或配 `ABUSEIPDB_API_KEY`（HTTPS API，不受 Fake-IP 影响）"。其它走 HTTPS 的源不受影响。
+来源可能共享上游：**数量 ≠ 独立证据**；无法证明独立按"未知"处理（详见下方置信度）。
 
-## 快速开始
+## 置信度与证据
+
+- 源分 A（权威/商业：ipinfo/Spamhaus/VirusTotal/MaxMind/DB-IP/RDAP/RIPEstat/Tor）、B（专业）、C（社区/聚合）。
+- 每字段**只采用适用来源**（地理只用地基库；代理/VPN 用专用库；Tor 用官方名单；滥用用名单/社区）。JSON `evidence` 含 `sources/applicability/level`。
+- **独立性未知**：无 A 级来源支持时，多个 B/C 一致最高只到「中」（**这是临时保守评级，不代表已解决独立性**）。
+- "高/中/低"是**证据分级**，不是统计概率；不输出"准确率/封号概率"。
+
+## 缓存与时间
+
+按来源缓存原始结果（**不缓存最终判断**，升级规则后重新聚合）。键=解析器版本+来源+规范化IP。
+`fetched_at / data_time / expires_at / served_at / cache_status`；`--refresh` 强制重查并穿透名单级缓存；过期在允许回退期内→可用但标注，超期→仅历史不参与判断；名单源用名单实际取得时间；不含密钥。
+
+## 实测边界（重要）
+
+- 必须**从该 IP 的出口**发起（`--proxy` 指定代理）；出口≠目标会告警，结论只归因实际出口。
+- 只测**网页/公开 API 端点**，未验证 App 登录/上传/推送；请求耗时是"经该代理的请求表现"，**非线路 ping/丢包**。
+- 状态保守：连接成功(功能未验证) / 明确地区限制 / 人机验证(≠封号) / 需登录 / 访问拒绝(原因不明) / 限流 / 连接失败。
+- 代理可能按域名/IPv6 分流：出口回显匹配是**必要条件非充分条件**。
+
+## 环境要求
+
+- 基础：**Python 3.8+，无第三方依赖**；Windows 免安装用 `dist/ipcheck.exe`。
+- 可选：`pip install maxminddb`（配 MaxMind 库）；`--browser`/`iphub_browser.py` 需 Playwright+Chrome。
+- 可选 Key：`IPHUB_API_KEY` / `ABUSEIPDB_API_KEY` / `VIRUSTOTAL_API_KEY` / `IPINFO_TOKEN` / `SCAMALYTICS_USER`+`SCAMALYTICS_KEY` / `GEOIP2_MMDB` / `IPCHECK_GATEWAY` / `IPCHECK_PROXY` / `IPCHECK_CACHE` / `IPCHECK_HISTORY`。
+
+## 项目结构
+
+```
+scripts/
+├── ipcheck.py            # 入口 shim（ipcheck.<name> 均可用）
+├── selfcheck.py          # 一键自检
+└── ipcheck_lib/
+    ├── constants.py  http.py  sources.py  scoring.py
+    ├── render.py  env.py  csvio.py  probe.py  cache.py  cli.py
+    └── fixtures/     # 固定样本（含 abnormal 异常页）
+gateway.py / setup_geoip.py / iphub_browser.py   # 独立工具
+tests/  test_core(test_cache/test_counterexamples/test_fixtures/test_contract/test_docs/test_consistency)
+```
+
+## 合规
+
+自动探活须遵守 服务条款 / API 政策 / 数据许可；`robots.txt` 仅爬虫场景适用、不等于自动化授权；免费源有速率与商用/再分发条款；代理凭据不进日志/报告。
+
+## 测试
 
 ```bash
-git clone https://github.com/FelixDSH/ip-reputation-check.git
-cd ip-reputation-check
-
-# 单 IP
-python scripts/ipcheck.py check 8.8.8.8
-
-# 多 IP + JSON
-python scripts/ipcheck.py check 8.8.8.8 1.1.1.1 --json
-
-# 我的出口 IP
-python scripts/ipcheck.py myip
-
-# 稳定性：连续采样 / 断开重连对比
-python scripts/ipcheck.py stability --rounds 5 --interval 3
-python scripts/ipcheck.py stability --interactive
+python scripts/selfcheck.py     # 全部离线测试 + 在线冒烟（推荐）
 ```
+离线套件：core / cache / counterexamples（审计反例）/ fixtures（固定样本）/ contract（异常页与坏数据）/ docs（文档漂移）/ consistency（类型×文案）。CI 覆盖 Python 3.8/3.10/3.12 + Windows。
 
-示例输出：
+## 能力边界
 
-```
-============================================================
-IP 信誉检测报告  212.68.185.88
-============================================================
-位置        : Japan Kanagawa Kawasaki   时区 Asia/Tokyo
-ASN / 组织  : AS58325 Hydra Communications Ltd
-ISP         : Hydra Communications Ltd
-网络类型    : VPN
-IP 类型     : VPN
-------------------------------------------------------------
-代理 Proxy  : 是    VPN: 是    托管 Hosting: 否
-移动网络    : 否    Tor: 未知
-------------------------------------------------------------
-欺诈分(Scamalytics): 0/100  (Low Risk)
-滥用置信度(AbuseIPDB): —（需 ABUSEIPDB_API_KEY）
-滥用举报(免key)      : StopForumSpam频率:0  blocklist.de攻击:0  IPsum:未命中
-权威滥用源  : Spamhaus:未命中
-------------------------------------------------------------
-综合判定    : 65/100  🟠 中高风险
-置信度      : 地理:高  代理:高  VPN:低  托管:高  滥用:低
-------------------------------------------------------------
-平台适配度(启发式,非平台真实判定):
-  🔴 易被风控  社交媒体(X/FB/IG/TikTok)  代理, VPN
-  🔴 易被风控  AI工具(OpenAI/Claude/Gemini)  代理, VPN
-  🔴 易被风控  电商/支付(Amazon/PayPal)  代理, VPN
-  🔴 易被风控  流媒体(Netflix/Spotify)  代理, VPN
-  🔴 易被风控  注册/论坛/爬虫  代理, VPN
-------------------------------------------------------------
-使用建议(启发式,综合IP画像):
-  ⛔ 不建议  注册社媒/AI 账号     代理/VPN/Tor IP 极易被判异常、要求验证或封号
-  ⛔ 不建议  长期养号           机房/代理/VPN IP 不利于长期养号，易被清理
-  ⚠️ 谨慎  爬虫/数据采集        可用，但非机房 IP 做采集成本高/易触发
-  ⛔ 不建议  电商/支付          风控最严，机房/代理/滥用 IP 基本不可用
-  ⚠️ 谨慎  流媒体解锁          VPN 可能被封（Netflix 等），需实测
-------------------------------------------------------------
-数据源 成功 : ipinfo.io, ip-api.com, ipwho.is, proxycheck.io, scamalytics.com, stopforumspam.com, blocklist.de, IPsum(聚合黑名单), Spamhaus DNSBL, DB-IP
-数据源 跳过 : iphub.info(需人机验证), abuseipdb.com(需 key), VirusTotal(未配置 VIRUSTOTAL_API_KEY), MaxMind GeoLite2(未配置)
-============================================================
-```
-
-## 配置 Key（可选）
-
-```bash
-export IPHUB_API_KEY=你的key
-export ABUSEIPDB_API_KEY=你的key
-# 可选
-export IPINFO_TOKEN=你的token
-export SCAMALYTICS_USER=你的user
-export SCAMALYTICS_KEY=你的key
-```
-
-Windows PowerShell：
-
-```powershell
-$env:IPHUB_API_KEY="你的key"
-$env:ABUSEIPDB_API_KEY="你的key"
-```
-
-## 命令行参数
-
-```
-ipcheck check <IP...> [--file F] [--csv out.csv] [--json] [--brief] [--open] [--env] [--no-platforms] [--regions] [--probe] [--proxy URL] [--interval S] [--refresh] [--only ...] [--gateway URL]
-ipcheck open <IP> [--all] [--which abuseipdb,iphub,scamalytics,stopforumspam]
-ipcheck probe [--proxy URL] [--expect-ip IP] [--only google,openai,x,...] [--timeout 10] [--json]
-ipcheck node [--proxy URL] [--expect-ip IP] [--scenario browse|ai|stream|account|call|general] [--samples 3] [--json]
-ipcheck compare --nodes "http://p1,http://p2" [--scenario ai] [--json]   # 多节点同条件对比
-ipcheck history [--node X] [--scenario ai] [--last 5] [--json]           # 历史复测差异（节点/算法/目标）
-ipcheck health [--ip IP] [--only src,...]        # 源健康检查（可用性/延迟）
-ipcheck myip [--json]        # 出口 IP + 环境一致性
-ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only ...]
-ipcheck watch [IP...] [--egress] [--interval 60] [--rounds N]   # 监控变化/漂移
-```
-
-`--only` 可选值：`ipinfo,ipapi,ipwhois,proxycheck,scamalytics,iphub,abuseipdb,stopforumspam,blocklistde,ipsum,spamhaus,virustotal,dbip,maxmind,rdap,ripe_bgp,tor_exit`
-
-客户端相关环境变量：`IPCHECK_GATEWAY`（网关地址）、`IPCHECK_GATEWAY_TOKEN`（网关令牌）。
-服务端（网关）相关：`IPHUB_API_KEY`、`ABUSEIPDB_API_KEY`、`IPINFO_TOKEN`、`GATEWAY_TOKEN`。
-
-## 人机验证（Captcha）怎么解决
-
-不同站点的反爬强度不一样，先分清三类：
-
-| 类型 | 站点 | 表现 | 对策 |
-|------|------|------|------|
-| 干净 JSON API | ipinfo / ip-api / ipwho.is / proxycheck | 无验证码 | 直接用（本工具默认就走这些） |
-| 站点要 token | **iphub 游客接口** | 机房/VPN 出口返回 `captchaRequired:true`（Cloudflare Turnstile）；住宅出口通常直接出结果 | ① 免费 API key（首选）② 真实浏览器人工过验证 ③ 第三方打码 |
-| Cloudflare 403 | **abuseipdb 网页版** | 直接 403 | 用官方 API key（免费 1000/天） |
-
-**核心结论：能用官方/免费 JSON API 就别硬刚验证码**——最稳、最省事。本工具已把所有能免验证码的源做成默认通道，验证码只在 iphub 游客接口 / abuseipdb 网页版出现，且都能被 API key 彻底绕开。
-
-真必须过验证码时，按可靠度从高到低：
-
-**1) 官方 API Key（首选）**
-- iphub：iphub.info 免费注册 → `IPHUB_API_KEY`
-- abuseipdb：abuseipdb.com 免费 1000 次/天 → `ABUSEIPDB_API_KEY`
-
-**2) 真实浏览器自动化（人工过一次）**
-- 用 Playwright 起真实 Chrome（非 headless），人工完成 Turnstile，脚本抓 `/api/lookup/ip` 的 JSON。
-- 本仓库自带：`python scripts/iphub_browser.py <IP>`
-
-**3) 第三方打码（Turnstile 求解）**
-- 服务：CapSolver / 2Captcha / YesCaptcha，均支持 `AntiTurnstileTaskProxyLess`。
-- 流程：取 sitekey + pageurl → 建任务 → 轮询拿 token → 作为 `cf-turnstile-response` 提交。
-- sitekey 从页面里的 `challenges.cloudflare.com/turnstile/...?sitekey=XXXX` iframe src 提取。
-
-```python
-# CapSolver 解 Turnstile 骨架（占位符自行替换）
-import os, time, requests
-SITEKEY, PAGEURL, APIKEY = "TURNSTILE_SITEKEY", "https://iphub.info/", "CAPSOLVER_KEY"
-tid = requests.post("https://api.capsolver.com/createTask", json={
-    "clientKey": APIKEY,
-    "task": {"type": "AntiTurnstileTaskProxyLess",
-             "websiteURL": PAGEURL, "websiteKey": SITEKEY}}).json()["taskId"]
-while True:
-    r = requests.post("https://api.capsolver.com/getTaskResult",
-                      json={"clientKey": APIKEY, "taskId": tid}).json()
-    if r.get("status") == "ready":
-        os.environ["IPHUB_TURNSTILE_TOKEN"] = r["solution"]["token"]; break
-    time.sleep(2)
-# 之后：python scripts/ipcheck.py check <IP> --only iphub  # 会自动带上 token
-```
-
-**4) 降低触发概率**
-- 用住宅/移动代理出口（机房 IP 几乎必触发）
-- 规范 UA / Accept-Language、控制频率（`--interval`）、复用 cookie 会话
-- 别用裸脚本高频打同一接口
-
-> 说明：验证码是对方的风控。优先官方 API；自用/有权限场景下再考虑浏览器或打码，并控制频率。
-
-## 滥用举报记录：不止 AbuseIPDB（这些免 key）
-
-AbuseIPDB 前端对程序化访问会拦（返回 "Please Don't Scrape"），程序里只能走免费 key。但**滥用/举报类信号并非只有它**，工具已内置几个完全免 key 的渠道：
-
-| 渠道 | 指标 | key |
-|------|------|-----|
-| StopForumSpam | 垃圾信息 / 滥用举报频率 | 免 |
-| blocklist.de | 攻击举报数 | 免 |
-| IPsum | 聚合 30+ 个黑名单的命中条数 | 免 |
-| Scamalytics | 欺诈分（也可作滥用参考） | 免 |
-
-报表会显示：`滥用举报(免key): StopForumSpam频率:X  blocklist.de攻击:Y  IPsum:命中/未命中`，并计入综合风险。
-
-### 一键打开网页并自动填入 IP（人工核验）
-
-有些站人肉打开最省事，工具会自动把 IP 拼进网址打开浏览器：
-
-```bash
-python scripts/ipcheck.py open 8.8.8.8          # 默认打开 abuseipdb 检查页
-python scripts/ipcheck.py open 8.8.8.8 --all    # abuseipdb / iphub / scamalytics / stopforumspam 全开
-python scripts/ipcheck.py 8.8.8.8 --open        # 检测完顺带打开 abuseipdb + iphub（IP 已带入）
-```
-
-## 为什么不要把 key 写进分发的 skill（多人共用正确姿势）
-
-**API Key 绑定的是「你账号」的配额。** 把 key 硬编码进一个给很多人用的 skill：
-- 所有人共用你一份额度 → 很快被限流/封禁；
-- 开源代码里泄露 key → 任何人都能盗用。
-
-正确做法是「免 key 优先 + BYOK + 共享网关」：
-
-| 场景 | 做法 |
-|------|------|
-| 开源分发给任意人 | **免 key 即可用**（ipinfo/ip-api/ipwho.is/proxycheck/scamalytics/StopForumSpam/blocklist.de/IPsum/Spamhaus/DB-IP 等约 10 个源零 key），需要 iphub/abuseipdb 精度的人**各自申请自己的免费 key**（BYOK） |
-| 团队/多人共用一个出口检测 | 部署**一台网关**：key 只放服务端，客户端零 key，网关做缓存+限流保护额度 |
-
-### 网关模式（团队共用一份 key 也不炸）
-
-```bash
-# 服务端（只这一台配 key）
-export IPHUB_API_KEY=xxx
-export ABUSEIPDB_API_KEY=xxx
-python scripts/gateway.py --host 0.0.0.0 --port 8787 --ttl 300 --rate 60 --token SECRET
-
-# 任意客户端（无需任何源 key）
-export IPCHECK_GATEWAY=http://网关IP:8787
-export IPCHECK_GATEWAY_TOKEN=SECRET
-python scripts/ipcheck.py check 8.8.8.8
-```
-
-网关内置：**TTL 缓存**（同 IP 在 TTL 内只查一次，省额度）、**每 IP 每分钟限流**、可选**访问令牌**。
-接口：`GET /check?ip=8.8.8.8` → 聚合 JSON；`GET /health` → 健康检查。
-
-## 源权威度 & 置信度（重要）
-
-**没有任何单一网站是「权威真相」。** 本项目把源分成三档，并按「源等级 × 多源一致度」给每个维度打置信度：
-
-| 档 | 含义 | 本工具中的源 |
-|----|------|--------------|
-| **A 权威/商业** | 正规数据源，可信度高 | ipinfo、Spamhaus、VirusTotal |
-| **B 专业** | 专用检测，较可信 | ip-api、proxycheck、blocklist.de |
-| **C 社区/聚合** | 参考信号，噪声较大 | ipwho.is、iphub、scamalytics、AbuseIPDB、StopForumSpam、IPsum |
-
-报表会输出：`置信度: 地理:高 代理:中 VPN:低 托管:高 滥用:低`
-- **高** = 多个（含高等级）源结果一致；**中** = 基本一致但有分歧；**低** = 单一源或源间冲突。
-- **数量 ≠ 独立证据**：免费源常共享上游；**没有 A 级来源支持时，即使多个 B/C 源一致，证据等级最高只到「中」**（JSON 里 `independence: unknown`）。⚠️ 这是**临时保守评级**，**不等于已解决来源独立性问题**（A 只是工具自定等级，不代表来源独立）。
-- **机房是推断**：国家+ASN/组织名只能支持"托管/云网络推断"，不等于已确认该地址的实际用途。
-- **滥用为「低」只代表没有权威源命中，不等于干净**（AbuseIPDB 官方也强调 0 报告 ≠ 安全）。
-
-### 能做什么 / 不能做什么
-- ✅ 快速初筛：这 IP 大概在哪、是不是代理/机房、有没有被拉黑。
-- ✅ 平台适配度初筛：这 IP 适不适合注册/使用社媒、AI 工具、电商支付、流媒体。
-- ✅ 多源对比 + 冲突提示：让你知道**这个结论有多可信**，而不是假装权威。
-- ❌ 不能当风控/封禁的唯一依据；地理城市级只有 ~50–80% 准确；住宅代理必然有漏报。
-- ❌ **实测只覆盖"网页/公开 API 端点"**：App 的登录/上传/推送/私有协议未验证；请求耗时是"经该代理的请求耗时"，**不是线路 ping/丢包**。
-
-### 合规边界（自用/低频）
-- 自动探活第三方平台须遵守其**服务条款 / API 政策 / 数据许可**；`robots.txt` 仅在使用爬虫访问时适用，**不等同于自动化授权**。
-- 只读、低频、不登录/注册/付费；免费源（Spamhaus/VirusTotal 等）有速率与商用/再分发条款，开源分发需逐源声明；代理凭据不进日志/报告。
-
-### 想要更高可信度 → 换商业 API
-`MaxMind GeoIP2 / minFraud`、`IPQualityScore`、`Spur`、`VirusTotal`、`Spamhaus`、`Cisco Talos` 才适合严谨风控。
-
-## IP 类型细分 & 环境一致性（防关联）
-
-**IP 类型细分**：除了「是不是机房」，还会归类为 住宅/移动(4G/5G)/机房云主机/企业/教育/政府/Tor/VPN/代理。
-报表里直接看 `IP 类型`，也用于平台适配度判断（住宅/移动更"像真人"）。
-
-**环境一致性检测**（防关联指纹，别人很少做）：
-```bash
-python scripts/ipcheck.py myip            # 看自己出口 IP + 环境一致性
-python scripts/ipcheck.py <IP> --env      # 检查某 IP 时附带环境比对
-```
-检测两项「穿帮」信号：
-- **时区**：本机时区 vs 出口 IP 大致时区是否一致（差 ≥2 小时 → 浏览器时区指纹穿帮）
-- **DNS 出口**：DNS 解析器所在国 vs IP 所在国（不一致 → 可能 DNS 泄漏/未全程走代理）
-
-示例（本机在国内、却用日本代理但没走 DNS）：
-```
-环境一致性:
-  时区: 本机 UTC+8  vs  IP≈UTC+9  ✅ 一致
-  DNS : 解析器 China - China Mobile ... 
-  ⚠️ DNS 出口与 IP 国家不一致：DNS=China，IP=Japan → 可能 DNS 泄漏/未走代理
-  结论: ⚠️ 环境不一致，易被平台风控识别
-```
-
-## 平台适配度（IP 对社媒 / AI / 电商 / 流媒体的可用度）
-
-不同平台对 IP 的风控差别很大：社媒、AI、支付普遍「杀机房、杀 VPN」，流媒体相对宽松。工具基于 IP 画像给每个平台类别一个**启发式风险**：
-
-- 输入信号：机房/托管、代理、VPN、Tor、移动网络、滥用记录、AI 地区限制
-- 输出：`🟢 适用 / 🟡 谨慎 / 🔴 易被风控` + 原因
-
-示例（8.8.8.8 机房 IP）：
-```
-🟡 谨慎   社交媒体(X/FB/IG/TikTok)  机房/托管
-🔴 易被风控 AI工具(OpenAI/Claude/Gemini)  机房/托管
-🔴 易被风控 电商/支付(Amazon/PayPal)  机房/托管
-```
-
-> 这是**启发式初筛，不是平台真实判定**；各平台策略随时变，仅供「选 IP」参考。核心用途：避免「拿机房 IP 注册 AI/社媒 → 秒封」。
-
-想更贴近真实风控：接 IPQS / Spur（住宅代理识别）+ 维护「各平台机房封禁强度」规则表 + 用实测成功率反馈校准阈值。
-
-## 决策化输出 & 平台规则库
-
-报表在「平台适配度」之后给出**使用建议**，直接回答能不能干这几件事：
-```
-✅ 推荐   爬虫/数据采集     机房 IP 适合高并发采集
-⛔ 不建议  电商/支付        风控最严，机房/代理/滥用 IP 基本不可用
-⚠️ 谨慎   注册社媒/AI账号   机房 IP 易触发手机验证
-```
-
-**站点适配度默认就显示**（规则推算，非实测），不需要加参数；`--no-platforms` 可关闭：
-```bash
-python scripts/ipcheck.py 8.8.8.8              # 默认含站点适配度
-python scripts/ipcheck.py 8.8.8.8 --no-platforms
-```
-内置平台：X、Facebook/Instagram、TikTok、Telegram、WhatsApp、Google、OpenAI/ChatGPT、Claude、Gemini、Midjourney、Amazon、PayPal、Binance、Netflix、Spotify。
-> 这是根据 IP 画像（机房/代理/VPN/地区限制）的**规则推算，不是实测**；红灯=易触发风控，不代表一定不可用或会封号。真正实测需从该 IP 出口实际访问。
-
-平台风控强度（机房/VPN，供参考）：
-
-| 平台 | 风控特点 |
-|------|----------|
-| PayPal / Binance | 最严，机房/代理基本不可用 |
-| Facebook / Instagram / TikTok | 极严，新号 + 机房易封 |
-| OpenAI / Claude | 杀机房 + 地区限制 |
-| X / Google | 机房易触发手机验证 |
-| Netflix | 封 VPN，需原生住宅 |
-| Telegram | 对 VPN 较宽松 |
-
-## 服务地区可用性（按 IP 所在国）
-
-加 `--regions` 会按 IP 所在国列出各服务是否可用（近似，以官方为准）：
-```bash
-python scripts/ipcheck.py 8.8.8.8 --regions
-```
-覆盖：OpenAI/ChatGPT、Claude、Gemini、Netflix、Spotify、TikTok、PayPal、Binance、Steam。
-例如美国 IP 会提示 `Binance ⛔ 受限（美国需 binance.us）`。
-
-## 批量 / 导出 / 监控
-
-```bash
-# 批量：从文件读 IP（每行一个，# 注释）
-python scripts/ipcheck.py --file ips.txt --brief
-
-# 导出 CSV（UTF-8-BOM，Excel 直接打开）
-python scripts/ipcheck.py --file ips.txt --csv result.csv
-
-# 监控：目标 IP 关键属性(类型/代理/风险)变化
-python scripts/ipcheck.py watch 8.8.8.8 --interval 60
-
-# 监控：自身出口 IP 是否漂移（会话/代理稳定性）
-python scripts/ipcheck.py watch --egress --interval 30
-```
-
-## 能力边界（别把它当"安全鉴定器"）
-
-"IP 是否干净"没有统一定义，本工具拆成几件事分别回答，**每件事的可靠度不同**：
-
-| 维度 | 回答什么 | 免费条件下可靠度 |
-|------|----------|------------------|
-| 网络归属 | 分配给谁 / 哪个 ASN 宣告 | 较高 |
-| 地理信息 | 数据库把它定位在哪 | 国家较高、城市中等（非物理定位） |
-| 网络属性 | 是否机房/代理/VPN/Tor | 部分可判、覆盖不全 |
-| 滥用记录 | 哪个名单何时记录了什么行为 | 部分可判；**查不到≠没有** |
-| 实际可用性 | 从该出口访问某服务结果如何 | 需实测（本工具默认不做） |
-
-**不能仅凭一个 IP + 几个免费接口判断**：是否独享住宅、账号会不会被封、长期是否稳定——这些列为能力边界，不生成确定性结论。
-
-另外几条硬约束：
-- **数据不足**（所有源失败）→ 输出「⚪ 数据不足/无法判定」，绝不判"干净住宅"。
-- **空响应/缺字段/错误页** 视为该源失败，不算"未命中"。
-- **私有/环回/保留/CGNAT 地址** 本地识别，不向公共信誉接口发送。
-- **PBL 策略名单**（住宅因不应直发邮件入列）不算恶意行为。
-
-## 证据可追溯（P1）
-
-报表对每个主要结论给出**支持/反对来源 + 证据强度**，并把"登记归属"和"路由归属"分开：
-```
-登记(RDAP)  : NET-8-8-8-0-2 / 8.8.8.0 - 8.8.8.255 / Google LLC
-路由(BGP)   : 8.8.8.0/24 announced=True origin AS15169 (GOOGLE - Google LLC)
-证据强度    :
-  代理 =否 强度:低 支持:proxycheck.io 反对:ip-api.com
-  托管 =是 强度:高 支持:ip-api.com,proxycheck.io,ipinfo.io 反对:-
-  地理 =US 强度:高 支持:DB-IP,ipinfo.io,ip-api.com,... 反对:-
-```
-- **RDAP ≠ BGP ≠ 实际使用者**：登记归属（谁登记）、路由归属（谁宣告）、实际使用（谁在用）三者不一致不一定异常。
-- **云厂商识别**：按 ASN / 组织名映射常见云（AWS / GCP / Azure / Cloudflare / DigitalOcean / OVH / Hetzner / Vultr / Oracle / 阿里 / 腾讯 等），命中即判"机房/云"。
-- **按字段适用来源**：不是"全局谁最权威"，而是字段级——地理只用地基库（maxmind/dbip/ipinfo/ipapi/ipwhois）、代理/VPN 只用专用库、Tor 用官方名单、滥用用名单/社区。JSON `evidence` 里每个字段列出"适用来源 + 性质 + 强度"。
-- **时间与状态可追溯**：每条证据在 JSON `sources[]` 里带 `query_time / status(ok|empty|error) / data_time`；报告顶部标"查询时间"。注意"查询时间"≠"数据更新时间"。
-- **Tor 官方名单**优先于社区标记；未命中≠不是任何代理。
-- 证据强度是"来源等级 × 一致度"，不是统计置信区间。
-
-## 实测模式（P2，可选）
-
-默认**只做推测、不做实测**。要实测某 IP 的"能不能用"，必须**从该 IP 的出口**发请求（本工具不自带代理，你用 `--proxy` 指定）：
-
-```bash
-# 直接测当前出口能访问哪些站点（只读，不登录）
-python scripts/ipcheck.py probe --only google,openai,x,netflix
-
-# 经指定代理出口测，并校验出口是否等于目标 IP
-python scripts/ipcheck.py probe --proxy http://user:pass@host:port --expect-ip 1.2.3.4
-
-# 检测某 IP 时顺带实测（会用 --proxy 出口；出口≠该 IP 会告警，不把结论归因给它）
-python scripts/ipcheck.py 1.2.3.4 --probe --proxy http://host:port
-```
-
-实测状态（严格区分，不把推测当实测）：
-`连接成功(未验证登录/功能)` / `明确地区限制` / `人机验证(挑战页,≠封号)` / `需登录/鉴权` / `访问拒绝(原因不明,不能断定封IP)` / `限流` / `连接失败`。
-直连模式还会给出**逐层分解**：`DNS 7ms/TCP 0ms/TLS 1544ms · HTTP 204`（代理模式由代理完成握手，只报 HTTP）。
-
-> **HTTP 200 ≠ 功能可用；403 ≠ 封号；401 可能只是没带 key。** 默认不登录/不注册/不付款、只读、少量请求。出口与目标不一致时，实测结论只代表实际出口那个 IP。
-
-## 节点体检（面向用途，P2+）
-
-只查 IP 无法回答"这个节点能不能用"。`node` 在当前出口（或 `--proxy`）上做**出口一致性 + 短时稳定性 + 场景目标实测**，并给跟证据匹配的建议：
-
-```bash
-python scripts/ipcheck.py node --scenario browse          # 社媒/网页
-python scripts/ipcheck.py node --scenario ai --proxy http://host:port --expect-ip 1.2.3.4
-```
-
-场景：`browse`(google/x/tiktok) / `ai`(openai/anthropic/chatgpt) / `stream`(netflix) / `account` / `call`。
-
-**多节点对比**（同场景/同时间/同次数，先排除地区限制/连接失败，再比稳定与延迟）：
-```bash
-python scripts/ipcheck.py compare --nodes "http://p1,http://p2,direct" --scenario ai
-```
-输出：每个节点的 出口/稳定/地区/挑战/失败/平均TLS + 结论，最后给"推荐"。短时对比，不代表长期稳定，也不预测封号。
-
-**历史复测**（区分"节点变了 / 算法变了 / 目标异常"）：
-```bash
-python scripts/ipcheck.py node --scenario ai --save     # 存一条历史
-python scripts/ipcheck.py history --node direct --scenario ai
-```
-差异会明确区分：算法版本变化（不代表 IP 变）、出口变化（节点换了出口）、目标表现变化（某站点结果变了）。
-
-> **分流限制**：同一代理可能按域名分流到不同出口；出口回显只代表回显服务的出口，不保证所有目标看到同一 IP（`node/probe` 在代理模式下会提示）。
-
-输出示例：
-```
-节点体检（场景：browse）
-出口: 212.x（本机直连，2 次采样 稳定）
-场景目标: google 连接成功 · x 连接成功 · tiktok 连接成功
-建议: 已测目标可达（未验证登录/业务功能）；短时结果不代表长期稳定。
-说明: 短时实测，不等于长期表现；不预测封号/账号安全。
-```
-
-> **IP 质量 ≠ 节点质量 ≠ 账号安全**：IP 查询只覆盖属性/历史；节点质量靠实测（连通/延迟/稳定）；账号安全靠行为/设备/服务政策，不能用 IP 分数保证。`--json` 输出恒为可解析 JSON（探测数据在同一结构里，诊断写 stderr）。
-
-## 缓存与时间元数据（查询效率 / 数据时效）
-
-按来源缓存原始结果（**不缓存最终判断**，升级规则后会重新聚合，不会复用旧"干净/住宅"结论）。缓存键 = 解析器版本 + 来源 + 规范化 IP（IPv6 等价写法归一）；代理凭据/Key 不入缓存。
-
-- 时间字段：`fetched_at`（取得时间，读缓存不改写）、`data_time`（上游数据时间，未知为 null）、`expires_at`、`served_at`、`cache_status`（fresh/valid/expired_refresh_failed/expired_too_old/none）。
-- 行为：有效缓存直接用（报告标"缓存"）；过期先刷新；刷新失败在**允许回退期内**可用但标"过期"并在报告列出"依赖过期证据"；**超过允许回退期→仅历史、不参与判断**（`ok=false`）；首次失败不生成"有效未命中"；`--refresh` 强制重查且**穿透名单级内部缓存**。
-- 名单类来源（IPsum/Tor）用"名单实际取得时间"作为 `data_time`/`fetched_at`，不会把"重新读本地名单"写成"刚从上游取得"。
-- 条目校验：非 dict / data 非 dict / 时间字段类型错 → 忽略并重查（安全降级）。
-- 目的：省额度/提速/失败兜底，**不是"提升准确率"**。
-
-## 来源关系说明（简短，非图谱）
-
-**数量 ≠ 独立证据**：下表记录用途/已知上游/独立性/条款；不确定即标"未知"。
-
-| 来源 | 用途/字段 | 已知上游关系 | 独立性 | 条款 |
-|---|---|---|---|---|
-| ipinfo | geo/ASN | 自有聚合 | 未知 | ipinfo.io/terms |
-| ip-api | geo/proxy 标记 | 可能转售多家 | 未知 | ip-api.com/docs/legal |
-| ipwho.is | geo/ASN | 聚合公开数据 | 未知 | ipwhois.io |
-| proxycheck | proxy/VPN/类型 | 自有 | 未知 | proxycheck.io terms |
-| scamalytics | 欺诈分 | 聚合 30+ 名单 | 未知（或与 IPsum 重叠） | scamalytics.com |
-| iphub | proxy 分级 | 自有规则 | 未知 | iphub.info |
-| AbuseIPDB | 滥用举报 | 社区上报 | 社区（可被刷） | abuseipdb.com/api |
-| StopForumSpam | 垃圾信息 | 社区 | 未知 | stopforumspam.com |
-| blocklist.de | 攻击举报 | 蜜罐 | 未知 | blocklist.de |
-| IPsum | 聚合黑名单 | **聚合 30+ 公开名单（可能与他源重叠）** | **否（聚合）** | github.com/stamparm/ipsum |
-| Spamhaus | DNSBL | 自有 | 独立 | spamhaus.com/terms |
-| VirusTotal | 多引擎 | 聚合 70+ 引擎（样本共享） | 部分独立 | virustotal.com terms |
-| DB-IP | geo | 自有 | 未知 | db-ip.com |
-| MaxMind | geo | 自有 | 独立 | maxmind.com terms |
-| RDAP | 登记 | 官方 RIR | 权威登记 | icann.org |
-| RIPEstat | BGP 路由 | RIPE RIS 观测 | 独立观测 | stat.ripe.net |
-| Tor 官方出口 | Tor | 官方名单 | 独立 | torproject.org |
-
-> 上表**不是血缘图谱**；无法证明独立时按"未知"处理，不因数量提升证据等级。
-
-## 风险判定模型
-
-- 外部分：取 Scamalytics 欺诈分、AbuseIPDB 置信度、Spamhaus 命中(≈90)、VirusTotal 恶意数换算 的较大值（0–100）。
-- 免 key 举报信号：StopForumSpam 频率、blocklist.de 攻击数、IPsum 命中也会抬高风险。
-- 信号分：Proxy +30、VPN +35、Hosting +10、Tor +60、Mobile −5。
-- 综合风险分 = min(100, max(外部分, 信号分, 举报分))；等级 `<20` 干净、`20–49` 中低、`50–79` 中高、`≥80` 高。
-- 源间冲突（例如 ip-api 说 proxy、proxycheck 说 no）会在报告「备注」中说明，并按可信源优先级取值。
-- ⚠️ **以上权重是经验值，非校准概率**（见 `ipcheck.py` 顶部 `RISK_W_*` 常量）。综合分只用于排序/初筛，不代表真实风险概率。
-- 代理/VPN/hosting 常来自同一来源，已做**去相关**：已有代理/VPN 时不再叠加 hosting（避免 30+35+10 重复计分）。
-- **数据不足**：若所有源都失败（无数据），综合判定输出「⚪ 数据不足 / 无法判定」，**不会**误判为"干净住宅"。
-
-## 作为 agent skill 使用
-
-把整个仓库（或仅 `SKILL.md` + `scripts/`）放到对应 skill 目录即可被加载：
-
-| 平台 | 目录 |
-|------|------|
-| Claude Code | `~/.claude/skills/ip-reputation-check/` |
-| Codex | `~/.codex/skills/ip-reputation-check/` |
-| 通用 Agents（豆包 / Trae 等） | `~/.agents/skills/ip-reputation-check/` |
-
-加载后对 agent 说「帮我查一下 1.2.3.4 这个 IP」，它会自动执行脚本并汇总结果。
-
-## 免责声明 / Notes
-
-- 判定「代理 / VPN / 机房」不代表该 IP 恶意；Cloudflare、Google 等 CDN/公共 DNS 常被标为 hosting。
-- 免费源有速率限制，批量场景请自备 Key 或放慢节奏（`--interval`）。
-- 各情报源数据仅供网络质量与风险参考，最终以实际网络行为为准。
+- 可信度分项：网络登记/路由/ASN 较高；国家对、城市 50–80%；代理/VPN 覆盖不全；**滥用"未命中"证明力弱**；站点适配为规则推算，非实测。
+- 不能仅凭 IP 判断"是否独享住宅 / 会不会封号 / 长期是否稳定"。
+- 无吞吐/丢包、无 App 功能实测。
 
 ## License
 
