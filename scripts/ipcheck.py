@@ -750,9 +750,21 @@ def _parse_only(s):
     return names
 
 
+def gateway_check(ip, base, token=None, timeout=30):
+    """通过自建网关查询（客户端无需任何源 key）。"""
+    url = base.rstrip("/") + "/check?ip=" + urllib.parse.quote(ip)
+    headers = {}
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    status, txt = http_get(url, headers=headers, timeout=timeout, retries=0)
+    return _j(txt)
+
+
 def cmd_check(args):
     color = not args.no_color and sys.stdout.isatty()
     from ipaddress import ip_address
+    gw = (args.gateway or os.environ.get("IPCHECK_GATEWAY", "").strip() or None)
+    gw_token = os.environ.get("IPCHECK_GATEWAY_TOKEN", "").strip() or None
     rc = 0
     for idx, ip in enumerate(args.ips):
         try:
@@ -761,7 +773,15 @@ def cmd_check(args):
             print("跳过非法 IP: " + ip, file=sys.stderr)
             rc = 2
             continue
-        agg = check_ip(ip, only=args.only, timeout=args.timeout)
+        if gw:
+            try:
+                agg = gateway_check(ip, gw, gw_token, timeout=max(args.timeout, 30))
+            except Exception as e:  # noqa: BLE001
+                print("网关查询失败(%s): %s" % (gw, e), file=sys.stderr)
+                rc = 2
+                continue
+        else:
+            agg = check_ip(ip, only=args.only, timeout=args.timeout)
         if args.json:
             print(render_json(agg))
         else:
@@ -789,6 +809,8 @@ def build_parser():
     pc.add_argument("--only", type=_parse_only, default=None,
                     help="只用这些源，逗号分隔: " + ",".join(ALL_SOURCES))
     pc.add_argument("--json", action="store_true", help="输出 JSON")
+    pc.add_argument("--gateway", default=None,
+                    help="走自建网关（也可用环境变量 IPCHECK_GATEWAY），客户端无需任何源 key")
     pc.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     pc.add_argument("--no-color", action="store_true")
     pc.set_defaults(func=cmd_check)

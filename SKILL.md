@@ -67,7 +67,13 @@ python scripts/ipcheck.py stability --rounds 5 --interval 3
 
 # 断开/重连前后对比（交互式，检测代理出口稳定性）
 python scripts/ipcheck.py stability --interactive
+
+# 团队共用：走自建网关（客户端无需任何源 key，key 只在服务端）
+python scripts/ipcheck.py check <IP> --gateway http://GATEWAY:8787
 ```
+
+> 分发/多人使用：**不要把个人 key 写进 skill**。免 key 的 5 个源已够用；需要 iphub/abuseipdb 精度时，
+> 每人用自己的免费 key（BYOK），或由团队跑一台 `scripts/gateway.py` 统一持 key+缓存+限流，其他人零 key 访问。
 
 ## 输出字段说明（给 agent 解释用）
 

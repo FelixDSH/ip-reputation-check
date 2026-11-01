@@ -90,12 +90,15 @@ $env:ABUSEIPDB_API_KEY="你的key"
 ## 命令行参数
 
 ```
-ipcheck check <IP...> [--json] [--only a,b,...] [--timeout 12] [--no-color]
+ipcheck check <IP...> [--json] [--only a,b,...] [--gateway URL] [--timeout 12] [--no-color]
 ipcheck myip [--json]
 ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only ...]
 ```
 
 `--only` 可选值：`ipinfo,ipapi,ipwhois,proxycheck,scamalytics,iphub,abuseipdb`
+
+客户端相关环境变量：`IPCHECK_GATEWAY`（网关地址）、`IPCHECK_GATEWAY_TOKEN`（网关令牌）。
+服务端（网关）相关：`IPHUB_API_KEY`、`ABUSEIPDB_API_KEY`、`IPINFO_TOKEN`、`GATEWAY_TOKEN`。
 
 ## 人机验证（Captcha）怎么解决
 
@@ -149,6 +152,36 @@ while True:
 > 说明：验证码是对方的风控。优先官方 API；自用/有权限场景下再考虑浏览器或打码，并控制频率。
 
 ## 命令行参数
+
+## 为什么不要把 key 写进分发的 skill（多人共用正确姿势）
+
+**API Key 绑定的是「你账号」的配额。** 把 key 硬编码进一个给很多人用的 skill：
+- 所有人共用你一份额度 → 很快被限流/封禁；
+- 开源代码里泄露 key → 任何人都能盗用。
+
+正确做法是「免 key 优先 + BYOK + 共享网关」：
+
+| 场景 | 做法 |
+|------|------|
+| 开源分发给任意人 | **免 key 即可用**（ipinfo/ip-api/ipwho.is/proxycheck/scamalytics 5 个源零 key），需要 iphub/abuseipdb 精度的人**各自申请自己的免费 key**（BYOK） |
+| 团队/多人共用一个出口检测 | 部署**一台网关**：key 只放服务端，客户端零 key，网关做缓存+限流保护额度 |
+
+### 网关模式（团队共用一份 key 也不炸）
+
+```bash
+# 服务端（只这一台配 key）
+export IPHUB_API_KEY=xxx
+export ABUSEIPDB_API_KEY=xxx
+python scripts/gateway.py --host 0.0.0.0 --port 8787 --ttl 300 --rate 60 --token SECRET
+
+# 任意客户端（无需任何源 key）
+export IPCHECK_GATEWAY=http://网关IP:8787
+export IPCHECK_GATEWAY_TOKEN=SECRET
+python scripts/ipcheck.py check 8.8.8.8
+```
+
+网关内置：**TTL 缓存**（同 IP 在 TTL 内只查一次，省额度）、**每 IP 每分钟限流**、可选**访问令牌**。
+接口：`GET /check?ip=8.8.8.8` → 聚合 JSON；`GET /health` → 健康检查。
 
 ## 风险判定模型
 
