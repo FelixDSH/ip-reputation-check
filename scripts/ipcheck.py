@@ -475,6 +475,30 @@ def src_dbip(ip, timeout):
 _MMDB_CACHE = {}
 
 
+def _ascii_path(path):
+    """maxminddb 的 C 扩展在 Windows 上无法打开非 ASCII 路径；转 8.3 短路径或拷到临时 ASCII 路径。"""
+    if path.isascii():
+        return path
+    if os.name == "nt":
+        try:
+            import ctypes
+            buf = ctypes.create_unicode_buffer(32768)
+            n = ctypes.windll.kernel32.GetShortPathNameW(path, buf, 32768)
+            if n and buf.value and buf.value.isascii():
+                return buf.value
+        except Exception:
+            pass
+    try:
+        import tempfile
+        import shutil
+        dst = os.path.join(tempfile.gettempdir(), "ipcheck_geolite.mmdb")
+        if (not os.path.exists(dst)) or os.path.getmtime(dst) < os.path.getmtime(path):
+            shutil.copyfile(path, dst)
+        return dst
+    except Exception:
+        return path
+
+
 def _maxmind_path():
     p = os.environ.get("GEOIP2_MMDB", "").strip()
     if p and os.path.exists(p):
@@ -498,7 +522,7 @@ def src_maxmind(ip, timeout):
         raise RuntimeError("需先安装 maxminddb：pip install maxminddb")
     reader = _MMDB_CACHE.get(path)
     if reader is None:
-        reader = maxminddb.open_database(path)
+        reader = maxminddb.open_database(_ascii_path(path))
         _MMDB_CACHE[path] = reader
     rec = reader.get(ip) or {}
     if not rec:
