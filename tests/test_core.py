@@ -288,6 +288,19 @@ class TestProbe(unittest.TestCase):
         self.assertEqual(d["targets"][0]["site"], "x")
         json.dumps(d)  # 不抛异常即说明可结构化
 
+    def test_recommend_nodes(self):
+        import ipcheck_lib.cli as C
+        nodes = [
+            {"node": "a", "region": 1, "fail": 0, "stable": True, "challenge": 0, "avg_tls_ms": 100},
+            {"node": "b", "region": 0, "fail": 0, "stable": True, "challenge": 0, "avg_tls_ms": 200},
+            {"node": "c", "region": 0, "fail": 0, "stable": False, "challenge": 0, "avg_tls_ms": 50},
+        ]
+        self.assertEqual(C._recommend_nodes(nodes), "b")  # b 稳定且无地区限制，优于不稳定的 c
+
+    def test_generated_at_present(self):
+        agg = ic.aggregate("1.2.3.4", [])
+        self.assertIn("generated_at", agg)
+
 
 class TestP0Guards(unittest.TestCase):
     def test_private_ip_skips_public_query(self):

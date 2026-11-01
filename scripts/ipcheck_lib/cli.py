@@ -467,6 +467,71 @@ def cmd_health(args):
     return 0
 
 
+def _measure_node(proxy, scenario, samples, interval, timeout):
+    only = _PROBE_SCEN.get(scenario)
+    egress_list = []
+    for i in range(max(1, samples)):
+        e = _probe.egress_via(proxy, timeout) if proxy else get_egress_ip(timeout)[0]
+        egress_list.append(e)
+        if i < samples - 1:
+            time.sleep(interval)
+    uniq = sorted({x for x in egress_list if x})
+    stable = bool(egress_list) and all(egress_list) and len(uniq) == 1
+    rows = _probe.run_probe(proxy=proxy, only=only, timeout=timeout)
+    region = sum(1 for r in rows if "地区限制" in r["verdict"])
+    challenge = sum(1 for r in rows if "人机" in r["verdict"])
+    fail = sum(1 for r in rows if "连接失败" in r["verdict"])
+    tls = [r["layers"]["tls_ms"] for r in rows if r.get("layers") and r["layers"].get("tls_ms") is not None]
+    avg_tls = round(sum(tls) / len(tls)) if tls else None
+    return {"node": proxy or "direct", "egress": egress_list[0] if egress_list else None,
+            "stable": stable, "region": region, "challenge": challenge, "fail": fail,
+            "avg_tls_ms": avg_tls, "targets": rows}
+
+
+def _recommend_nodes(nodes):
+    """按用途筛：先排除地区限制/连接失败，再偏好稳定、少挑战、低延迟。"""
+    ok = [n for n in nodes if n.get("region", 0) == 0 and n.get("fail", 0) == 0]
+    if not ok:
+        return None
+    ok.sort(key=lambda n: (0 if n.get("stable") else 1, n.get("challenge", 0),
+                           n.get("avg_tls_ms") if n.get("avg_tls_ms") is not None else 10 ** 9))
+    return ok[0]["node"]
+
+
+def cmd_compare(args):
+    spec = [x.strip() for x in args.nodes.split(",") if x.strip()]
+    if not spec:
+        print("请用 --nodes 给出节点，如 --nodes 'http://p1,http://p2'", file=sys.stderr)
+        return 2
+    measured = []
+    for nd in spec:
+        proxy = None if nd.lower() in ("direct", "本机", "") else nd
+        measured.append(_measure_node(proxy, args.scenario, args.samples, args.interval, args.timeout))
+    best = _recommend_nodes(measured)
+    data = {"scenario": args.scenario, "nodes": measured, "best": best}
+    if getattr(args, "json", False):
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0
+    print("节点对比（场景：%s）" % args.scenario)
+    print("  %-24s %-16s %-6s %-6s %-6s %-6s %-9s %s" % (
+        "节点", "出口", "稳定", "地区", "挑战", "失败", "平均TLS", "结论"))
+    for n in measured:
+        if n["node"] == best:
+            concl = "✅ 推荐"
+        elif n["region"]:
+            concl = "⛔ 地区限制"
+        elif n["fail"]:
+            concl = "⚠️ 连接失败"
+        else:
+            concl = "备选"
+        print("  %-24s %-16s %-6s %-6s %-6s %-6s %-9s %s" % (
+            n["node"][:24], (n["egress"] or "?")[:16], "是" if n["stable"] else "否",
+            n["region"], n["challenge"], n["fail"], n["avg_tls_ms"] if n["avg_tls_ms"] is not None else "-", concl))
+    print("推荐: " + (best if best else "无（均存在地区限制/连接失败）"))
+    print("说明: 同场景/同时间/同次数的短时对比；不代表长期稳定性，也不预测封号。")
+    return 0
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="ipcheck",
@@ -559,6 +624,15 @@ def build_parser():
     pn.add_argument("--json", action="store_true")
     pn.set_defaults(func=cmd_node)
 
+    pcmp = sub.add_parser("compare", help="多节点同条件对比（出口稳定/地区/挑战/延迟），给出推荐")
+    pcmp.add_argument("--nodes", required=True, help="节点逗号分隔：http://p1,http://p2 或 direct")
+    pcmp.add_argument("--scenario", default="general", choices=list(_PROBE_SCEN))
+    pcmp.add_argument("--samples", type=int, default=2)
+    pcmp.add_argument("--interval", type=int, default=2)
+    pcmp.add_argument("--timeout", type=float, default=10)
+    pcmp.add_argument("--json", action="store_true")
+    pcmp.set_defaults(func=cmd_compare)
+
     ph = sub.add_parser("health", help="源健康检查：逐源探测可用性/延迟（上游失效显式降级）")
     ph.add_argument("--ip", default="8.8.8.8", help="探针 IP")
     ph.add_argument("--only", type=_parse_only, default=None, help="只检查这些源")
@@ -570,7 +644,7 @@ def main(argv=None):
     _setup_console()
     argv = argv if argv is not None else sys.argv[1:]
     # 简化：允许 `ipcheck.py 8.8.8.8` 或 `ipcheck.py --file x.txt`（等价于 check）
-    if argv and argv[0] not in ("check", "myip", "stability", "open", "watch", "probe", "node", "health",
+    if argv and argv[0] not in ("check", "myip", "stability", "open", "watch", "probe", "node", "compare", "health",
                                 "-h", "--help", "--version", "-V"):
         argv = ["check"] + argv
     p = build_parser()

@@ -209,6 +209,7 @@ ipcheck check <IP...> [--file F] [--csv out.csv] [--json] [--brief] [--open] [--
 ipcheck open <IP> [--all] [--which abuseipdb,iphub,scamalytics,stopforumspam]
 ipcheck probe [--proxy URL] [--expect-ip IP] [--only google,openai,x,...] [--timeout 10] [--json]
 ipcheck node [--proxy URL] [--expect-ip IP] [--scenario browse|ai|stream|account|call|general] [--samples 3] [--json]
+ipcheck compare --nodes "http://p1,http://p2" [--scenario ai] [--json]   # 多节点同条件对比
 ipcheck health [--ip IP] [--only src,...]        # 源健康检查（可用性/延迟）
 ipcheck myip [--json]        # 出口 IP + 环境一致性
 ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only ...]
@@ -474,6 +475,7 @@ python scripts/ipcheck.py watch --egress --interval 30
 ```
 - **RDAP ≠ BGP ≠ 实际使用者**：登记归属（谁登记）、路由归属（谁宣告）、实际使用（谁在用）三者不一致不一定异常。
 - **云厂商识别**：按 ASN / 组织名映射常见云（AWS / GCP / Azure / Cloudflare / DigitalOcean / OVH / Hetzner / Vultr / Oracle / 阿里 / 腾讯 等），命中即判"机房/云"。
+- **时间与状态可追溯**：每条证据在 JSON `sources[]` 里带 `query_time / status(ok|empty|error) / data_time`；报告顶部标"查询时间"。注意"查询时间"≠"数据更新时间"。
 - **Tor 官方名单**优先于社区标记；未命中≠不是任何代理。
 - 证据强度是"来源等级 × 一致度"，不是统计置信区间。
 
@@ -508,6 +510,12 @@ python scripts/ipcheck.py node --scenario ai --proxy http://host:port --expect-i
 ```
 
 场景：`browse`(google/x/tiktok) / `ai`(openai/anthropic/chatgpt) / `stream`(netflix) / `account` / `call`。
+
+**多节点对比**（同场景/同时间/同次数，先排除地区限制/连接失败，再比稳定与延迟）：
+```bash
+python scripts/ipcheck.py compare --nodes "http://p1,http://p2,direct" --scenario ai
+```
+输出：每个节点的 出口/稳定/地区/挑战/失败/平均TLS + 结论，最后给"推荐"。短时对比，不代表长期稳定，也不预测封号。
 
 输出示例：
 ```

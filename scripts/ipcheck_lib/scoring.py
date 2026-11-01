@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # 由 tools/make_pkg.py 从 ipcheck.py 自动拆分生成，请勿手改结构注释。
 import argparse
 import concurrent.futures as cf
@@ -418,6 +418,7 @@ def aggregate(ip, results):
 
     return {
         "ip": ip,
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "ip_type": ip_type,
         "geo": geo,
         "network": {"asn_org": asn_org, "isp": isp, "hostname": hostname,
@@ -601,6 +602,7 @@ def check_ip(ip, only=None, timeout=DEFAULT_TIMEOUT):
         pass
     names = [s for s in (only or _sources.ALL_SOURCES) if s in _sources.SOURCES]
     results = []
+    ts = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     with cf.ThreadPoolExecutor(max_workers=len(names)) as ex:
         futs = {ex.submit(_sources.SOURCES[n], ip, timeout): n for n in names}
         for fut in cf.as_completed(futs):
@@ -608,11 +610,14 @@ def check_ip(ip, only=None, timeout=DEFAULT_TIMEOUT):
             try:
                 d = fut.result()
                 if not d or not _has_fields(d):  # 空响应/全 null ≠ 成功
-                    results.append({"source": n, "ok": False, "data": {}, "error": "空响应/无有效字段"})
+                    results.append({"source": n, "ok": False, "data": {}, "error": "空响应/无有效字段",
+                                    "status": "empty", "query_time": ts, "data_time": None})
                 else:
-                    results.append({"source": n, "ok": True, "data": d, "error": None})
+                    results.append({"source": n, "ok": True, "data": d, "error": None,
+                                    "status": "ok", "query_time": ts, "data_time": None})
             except Exception as e:  # noqa: BLE001
-                results.append({"source": n, "ok": False, "data": {}, "error": str(e)})
+                results.append({"source": n, "ok": False, "data": {}, "error": str(e),
+                                "status": "error", "query_time": ts, "data_time": None})
     # 保持稳定顺序
     order = {n: i for i, n in enumerate(_sources.ALL_SOURCES)}
     results.sort(key=lambda r: order.get(r["source"], 99))

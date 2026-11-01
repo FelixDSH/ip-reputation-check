@@ -101,6 +101,8 @@ def render_report(agg, color=True):
     lines.append(c.b("=" * 60))
     lines.append(c.b("IP 信誉检测报告  ") + c.cyan(agg["ip"]))
     lines.append(c.b("=" * 60))
+    if agg.get("generated_at"):
+        lines.append(c.dim("查询时间    : " + str(agg["generated_at"]) + "（各源响应时间见 JSON sources.query_time）"))
 
     loc = " ".join([x for x in [geo.get("country"), geo.get("region"), geo.get("city")] if x]) or "-"
     lines.append("位置        : " + loc + (("   时区 " + geo["timezone"]) if geo.get("timezone") else ""))

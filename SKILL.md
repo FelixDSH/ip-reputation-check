@@ -92,6 +92,8 @@ python scripts/ipcheck.py health
 # 面向用途的节点体检（需当前出口或 --proxy）：出口一致性/稳定性 + 场景实测 + 建议
 python scripts/ipcheck.py node --scenario browse        # browse/ai/stream/account/call/general
 python scripts/ipcheck.py node --scenario ai --proxy http://host:port --expect-ip <IP>
+# 多节点对比（同场景，给推荐）
+python scripts/ipcheck.py compare --nodes "http://p1,http://p2" --scenario ai
 
 # 看当前出口 IP
 python scripts/ipcheck.py myip

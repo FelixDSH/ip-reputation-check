@@ -1,6 +1,7 @@
 ﻿============================================================
 IP 信誉检测报告  212.68.185.88
 ============================================================
+查询时间    : 2026-11-01T22:13:16+0800（各源响应时间见 JSON sources.query_time）
 位置        : Japan Kanagawa Kawasaki   时区 Asia/Tokyo
 ASN / 组织  : AS58325 Hydra Communications Ltd
 ISP         : Hydra Communications Ltd
