@@ -19,6 +19,7 @@ from ipcheck_lib.constants import *  # noqa: F401,F403
 from ipcheck_lib.http import *  # noqa: F401,F403
 from ipcheck_lib.sources import *  # noqa: F401,F403
 from ipcheck_lib import sources as _sources  # noqa: F401
+from ipcheck_lib import cache as _cache  # noqa: F401
 
 def _coherent_geo(sources):
     """从单一来源取一整套地理字段，避免跨源拼接导致的不一致。"""
@@ -84,7 +85,8 @@ def _conf_bool(votes):
         val = tw_true > tw_false
     support = [SOURCE_LABEL.get(s, s) for s, v in known if v == val]
     oppose = [SOURCE_LABEL.get(s, s) for s, v in known if v != val]
-    # 独立性未知：仅 B/C 源数量一致不自动升为"高"；需 A 级来源也支持该值
+    # 临时保守规则：独立性未知，B/C 源数量一致不自动升为"高"；需 A 级来源也支持该值。
+    # 注意：这只是评级限制，**并不等于已解决来源独立性问题**（A 只是工具自定等级，不代表来源独立）。
     if lvl == "high" and not any(SOURCE_TIER.get(s) == "A" for s, v in known if v == val):
         lvl = "medium"
     return {"level": lvl, "n": n, "value": val, "support": support,
@@ -110,7 +112,8 @@ def _conf_cat(votes):
         lvl = "low"
     support = [SOURCE_LABEL.get(s, s) for s, v in known if v == val]
     oppose = [SOURCE_LABEL.get(s, s) for s, v in known if v != val]
-    # 独立性未知：仅 B/C 源数量一致不自动升为"高"；需 A 级来源也支持该值
+    # 临时保守规则：独立性未知，B/C 源数量一致不自动升为"高"；需 A 级来源也支持该值。
+    # 注意：这只是评级限制，**并不等于已解决来源独立性问题**（A 只是工具自定等级，不代表来源独立）。
     if lvl == "high" and not any(SOURCE_TIER.get(s) == "A" for s, v in known if v == val):
         lvl = "medium"
     return {"level": lvl, "n": n, "value": val, "support": support,
@@ -600,7 +603,7 @@ def _has_fields(d):
     return any(_nonempty(v) for v in d.values())
 
 
-def check_ip(ip, only=None, timeout=DEFAULT_TIMEOUT):
+def check_ip(ip, only=None, timeout=DEFAULT_TIMEOUT, refresh=False):
     # 非公网地址（私网/环回/保留/CGNAT）不发外网查询
     try:
         from ipaddress import ip_address as _ipa
@@ -610,22 +613,11 @@ def check_ip(ip, only=None, timeout=DEFAULT_TIMEOUT):
         pass
     names = [s for s in (only or _sources.ALL_SOURCES) if s in _sources.SOURCES]
     results = []
-    ts = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     with cf.ThreadPoolExecutor(max_workers=len(names)) as ex:
-        futs = {ex.submit(_sources.SOURCES[n], ip, timeout): n for n in names}
+        futs = {ex.submit(_cache.fetch, n, ip, _sources.SOURCES[n], timeout, refresh, _has_fields): n
+                for n in names}
         for fut in cf.as_completed(futs):
-            n = futs[fut]
-            try:
-                d = fut.result()
-                if not d or not _has_fields(d):  # 空响应/全 null ≠ 成功
-                    results.append({"source": n, "ok": False, "data": {}, "error": "空响应/无有效字段",
-                                    "status": "empty", "query_time": ts, "data_time": None})
-                else:
-                    results.append({"source": n, "ok": True, "data": d, "error": None,
-                                    "status": "ok", "query_time": ts, "data_time": None})
-            except Exception as e:  # noqa: BLE001
-                results.append({"source": n, "ok": False, "data": {}, "error": str(e),
-                                "status": "error", "query_time": ts, "data_time": None})
+            results.append(fut.result())
     # 保持稳定顺序
     order = {n: i for i, n in enumerate(_sources.ALL_SOURCES)}
     results.sort(key=lambda r: order.get(r["source"], 99))

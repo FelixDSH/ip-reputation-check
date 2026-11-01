@@ -26,6 +26,8 @@ jobs:
         run: python tests/test_counterexamples.py
       - name: 固定样本解析回归
         run: python tests/test_fixtures.py
+      - name: 缓存与时间元数据
+        run: python tests/test_cache.py
       - name: IP 类型 × 文案一致性自检
         run: python tests/test_consistency.py
       - name: CLI 冒烟

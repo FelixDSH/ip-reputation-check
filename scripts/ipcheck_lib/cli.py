@@ -220,7 +220,8 @@ def cmd_check(args):
                 rc = 2
                 continue
         else:
-            agg = check_ip(ip, only=args.only, timeout=args.timeout)
+            agg = check_ip(ip, only=args.only, timeout=args.timeout,
+                           refresh=getattr(args, "refresh", False))
         if getattr(args, "env", False):
             try:
                 agg["env"] = env_consistency(agg.get("geo") or {})
@@ -649,6 +650,7 @@ def build_parser():
                     help="走自建网关（也可用环境变量 IPCHECK_GATEWAY），客户端无需任何源 key")
     pc.add_argument("--interval", type=float, default=0.0,
                     help="批量时每个 IP 之间的间隔秒（防免费源限流）")
+    pc.add_argument("--refresh", action="store_true", help="忽略来源缓存，强制重新查询")
     pc.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     pc.add_argument("--no-color", action="store_true")
     pc.set_defaults(func=cmd_check)

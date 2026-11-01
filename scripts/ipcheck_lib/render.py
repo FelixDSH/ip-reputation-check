@@ -109,7 +109,7 @@ def render_report(agg, color=True):
     lines.append("ASN / 组织  : " + (net.get("asn_org") or "-"))
     lines.append("ISP         : " + (net.get("isp") or "-"))
     if net.get("cloud"):
-        lines.append("云厂商      : " + str(net["cloud"]) + "（机房/云）")
+        lines.append("云厂商      : " + str(net["cloud"]) + "（云/托管网络推断，未独立验证该地址实际用途）")
     if net.get("hostname"):
         lines.append("PTR 主机名  : " + str(net["hostname"]))
     if net.get("type"):
@@ -129,6 +129,7 @@ def render_report(agg, color=True):
                  "    VPN: " + _fmt_bool(fl.get("vpn")) +
                  "    托管 Hosting: " + _fmt_bool(fl.get("hosting")))
     lines.append("移动网络    : " + _fmt_bool(fl.get("mobile")) + "    Tor: " + _fmt_bool(fl.get("tor")))
+    lines.append(c.dim("说明: 以上 代理/VPN/托管 为数据库/规则标签（'标记为VPN'≠'实际是VPN'），非实测。"))
     extra = []
     if fl.get("residential_proxy") is not None:
         extra.append("住宅代理: " + _fmt_bool(fl.get("residential_proxy")))
@@ -215,6 +216,16 @@ def render_report(agg, color=True):
     lines.append("数据源 成功 : " + (", ".join(ok) if ok else "无"))
     if bad:
         lines.append("数据源 跳过 : " + ", ".join(bad))
+    cs = {}
+    for r in agg["sources"]:
+        cs[r.get("cache_status")] = cs.get(r.get("cache_status"), 0) + 1
+    if cs.get("valid") or cs.get("expired_refresh_failed"):
+        parts = []
+        if cs.get("valid"):
+            parts.append("%d 项来自有效缓存(时间见 JSON)" % cs["valid"])
+        if cs.get("expired_refresh_failed"):
+            parts.append("%d 项过期且刷新失败" % cs["expired_refresh_failed"])
+        lines.append("缓存        : " + "；".join(parts))
     lines.append(c.dim("ℹ️ 多源规则初筛，非概率、非实测；“干净/风险”仅表示证据倾向，不等于安全结论。"))
     lines.append(c.b("=" * 60))
     return "\n".join(lines)

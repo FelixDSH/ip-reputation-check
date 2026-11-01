@@ -52,6 +52,7 @@ tests/  (test_core.py, test_consistency.py)
 python tests/test_core.py            # 核心逻辑单测
 python tests/test_counterexamples.py # 之前审计反例的硬性回归（空数据/仅地理/仅RDAP/空字段/DNS临时失败/探针误判/JSON）
 python tests/test_fixtures.py        # 固定响应快照解析回归
+python tests/test_cache.py           # 来源级缓存/时间元数据（有效/过期/刷新失败/版本/IPv6/损坏/无密钥）
 python tests/test_consistency.py     # 10 种 IP 类型 × 文案自洽性
 python scripts/ipcheck.py health      # 源健康检查
 ```
@@ -206,7 +207,7 @@ $env:ABUSEIPDB_API_KEY="你的key"
 ## 命令行参数
 
 ```
-ipcheck check <IP...> [--file F] [--csv out.csv] [--json] [--brief] [--open] [--env] [--no-platforms] [--regions] [--probe] [--proxy URL] [--interval S] [--only ...] [--gateway URL]
+ipcheck check <IP...> [--file F] [--csv out.csv] [--json] [--brief] [--open] [--env] [--no-platforms] [--regions] [--probe] [--proxy URL] [--interval S] [--refresh] [--only ...] [--gateway URL]
 ipcheck open <IP> [--all] [--which abuseipdb,iphub,scamalytics,stopforumspam]
 ipcheck probe [--proxy URL] [--expect-ip IP] [--only google,openai,x,...] [--timeout 10] [--json]
 ipcheck node [--proxy URL] [--expect-ip IP] [--scenario browse|ai|stream|account|call|general] [--samples 3] [--json]
@@ -339,7 +340,8 @@ python scripts/ipcheck.py check 8.8.8.8
 
 报表会输出：`置信度: 地理:高 代理:中 VPN:低 托管:高 滥用:低`
 - **高** = 多个（含高等级）源结果一致；**中** = 基本一致但有分歧；**低** = 单一源或源间冲突。
-- **数量 ≠ 独立证据**：免费源常共享上游；**没有 A 级来源支持时，即使多个 B/C 源一致，证据等级最高只到「中」**（JSON 里 `independence: unknown`）。
+- **数量 ≠ 独立证据**：免费源常共享上游；**没有 A 级来源支持时，即使多个 B/C 源一致，证据等级最高只到「中」**（JSON 里 `independence: unknown`）。⚠️ 这是**临时保守评级**，**不等于已解决来源独立性问题**（A 只是工具自定等级，不代表来源独立）。
+- **机房是推断**：国家+ASN/组织名只能支持"托管/云网络推断"，不等于已确认该地址的实际用途。
 - **滥用为「低」只代表没有权威源命中，不等于干净**（AbuseIPDB 官方也强调 0 报告 ≠ 安全）。
 
 ### 能做什么 / 不能做什么
@@ -544,6 +546,14 @@ python scripts/ipcheck.py history --node direct --scenario ai
 ```
 
 > **IP 质量 ≠ 节点质量 ≠ 账号安全**：IP 查询只覆盖属性/历史；节点质量靠实测（连通/延迟/稳定）；账号安全靠行为/设备/服务政策，不能用 IP 分数保证。`--json` 输出恒为可解析 JSON（探测数据在同一结构里，诊断写 stderr）。
+
+## 缓存与时间元数据（查询效率 / 数据时效）
+
+按来源缓存原始结果（**不缓存最终判断**，升级规则后会重新聚合，不会复用旧"干净/住宅"结论）。缓存键 = 解析器版本 + 来源 + 规范化 IP（IPv6 等价写法归一）；代理凭据/Key 不入缓存。
+
+- 时间字段：`fetched_at`（取得时间，读缓存不改写）、`data_time`（上游数据时间，未知为 null）、`expires_at`、`served_at`、`cache_status`（fresh/valid/expired_refresh_failed/none）。
+- 行为：有效缓存直接用（报告标"缓存"）；过期先刷新；刷新失败可展示旧数据但标"过期"；首次失败不生成"有效未命中"；`--refresh` 强制重查。
+- 目的：省额度/提速/失败兜底，**不是"提升准确率"**。
 
 ## 风险判定模型
 
