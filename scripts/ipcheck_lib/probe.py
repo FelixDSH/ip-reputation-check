@@ -27,10 +27,16 @@ TARGETS = {
     "netflix":  {"url": "https://www.netflix.com/", "note": "Netflix"},
 }
 
-_REGION_MARKERS = ("not supported", "unsupported", "not available in your",
-                   "country, region", "region or territory", "not available in this")
+_REGION_MARKERS = ("not supported in your country", "not available in your country",
+                   "not available in your region", "not supported in your region",
+                   "unsupported country", "country, region, or territory",
+                   "region or territory not", "not available in this country",
+                   "地区不受支持", "所在地区不可用", "not available in your location")
 _CHALLENGE_MARKERS = ("just a moment", "challenge-platform", "cf-chl", "attention required",
-                      "verify you are human", "cf-turnstile", "checking your browser")
+                      "verify you are human", "cf-turnstile", "checking your browser",
+                      "enable javascript and cookies to continue")
+_BROWSER_MARKERS = ("browser is unsupported", "unsupported browser", "browser version",
+                    "update your browser", "浏览器不受支持")
 
 
 def _opener(proxy=None):
@@ -64,6 +70,15 @@ def classify(status, body=""):
     if status is None:
         return "连接失败(网络/DNS/TLS)"
     low = (body or "").lower()
+    # 挑战页可能在 200 / 403 / 503，优先识别
+    if any(k in low for k in _CHALLENGE_MARKERS):
+        return "人机验证(挑战页,不等于封号)"
+    if status == 451:
+        return "法律/地区限制"
+    if any(k in low for k in _REGION_MARKERS):
+        return "明确地区限制"
+    if any(k in low for k in _BROWSER_MARKERS):
+        return "客户端/浏览器不受支持(非地区限制)"
     if status == 204 or 200 <= status < 300:
         return "连接成功(未验证登录/功能)"
     if status in (301, 302, 303, 307, 308):
@@ -72,13 +87,7 @@ def classify(status, body=""):
         return "需登录/鉴权(匿名无法验证)"
     if status == 429:
         return "限流(稍后重试)"
-    if status == 451:
-        return "法律/地区限制"
     if status == 403:
-        if any(k in low for k in _REGION_MARKERS):
-            return "明确地区限制"
-        if any(k in low for k in _CHALLENGE_MARKERS):
-            return "人机验证(挑战页,不等于封号)"
         return "访问拒绝(原因不明,不能断定封IP)"
     if status >= 500:
         return "目标服务端错误(HTTP %d)" % status

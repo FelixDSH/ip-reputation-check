@@ -130,7 +130,7 @@ class TestParsers(unittest.TestCase):
         import socket as _s
 
         def boom(*a, **k):
-            raise _s.gaierror()
+            raise _s.gaierror(11001, "Host not found")  # 明确的 NXDOMAIN
         with mock.patch.object(S, "_dns_query_a", boom):
             d = ic.src_spamhaus("1.2.3.4", 5)
         self.assertFalse(d["listed"])
@@ -255,6 +255,16 @@ class TestProbe(unittest.TestCase):
         self.assertIn("连接失败", P.classify(None, ""))
         self.assertIn("地区", P.classify(451, ""))
 
+    def test_classify_browser_not_region(self):
+        import ipcheck_lib.probe as P
+        v = P.classify(403, "Your browser is unsupported")
+        self.assertNotEqual(v, "明确地区限制")
+        self.assertIn("浏览器", v)
+
+    def test_classify_challenge_on_200(self):
+        import ipcheck_lib.probe as P
+        self.assertIn("人机", P.classify(200, "Just a moment... checking your browser"))
+
 
 class TestP0Guards(unittest.TestCase):
     def test_private_ip_skips_public_query(self):
@@ -286,6 +296,40 @@ class TestP0Guards(unittest.TestCase):
         agg = ic._local_agg("192.168.1.1")
         self.assertIsNone(agg["verdict"]["risk_score"])
         self.assertEqual(agg["verdict"]["risk_level"], "unknown")
+
+    def test_has_fields(self):
+        self.assertFalse(ic._has_fields({}))
+        self.assertFalse(ic._has_fields({"a": None, "b": None}))
+        self.assertTrue(ic._has_fields({"proxy": False}))   # False 是有效数据
+        self.assertTrue(ic._has_fields({"city": "X"}))
+
+    def test_geo_only_is_unknown_not_residential(self):
+        # 只有国家信息：不能判“住宅/干净”
+        results = [{"source": "ipinfo", "ok": True,
+                    "data": {"country": "US", "country_code": "US"}, "error": None}]
+        agg = ic.aggregate("1.2.3.4", results)
+        self.assertIn("证据不足", agg["ip_type"])
+        self.assertEqual(agg["verdict"]["risk_level"], "unknown")
+        self.assertEqual(agg["platform_fit"], [])
+
+    def test_rdap_only_not_clean(self):
+        results = [{"source": "rdap", "ok": True,
+                    "data": {"handle": "X", "org": "ACME", "start": "1.2.3.0", "end": "1.2.3.255"},
+                    "error": None}]
+        agg = ic.aggregate("1.2.3.4", results)
+        self.assertEqual(agg["verdict"]["risk_level"], "unknown")
+
+    def test_spamhaus_transient_is_unknown(self):
+        import socket
+        def again(*a, **k):
+            raise socket.gaierror(-3, "Temporary failure in name resolution")
+        with mock.patch.object(S, "_dns_query_a", again):
+            with self.assertRaises(RuntimeError):
+                ic.src_spamhaus("1.2.3.4", 5)
+        def noname(*a, **k):
+            raise socket.gaierror(11001, "Host not found")
+        with mock.patch.object(S, "_dns_query_a", noname):
+            self.assertFalse(ic.src_spamhaus("1.2.3.4", 5)["listed"])
 
 
 if __name__ == "__main__":

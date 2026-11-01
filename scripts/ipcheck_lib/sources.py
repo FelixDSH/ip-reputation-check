@@ -304,10 +304,18 @@ def src_spamhaus(ip, timeout):
     rev = ".".join(reversed(ip.split("."))) + ".zen.spamhaus.org"
     try:
         ans = _dns_query_a(rev, min(timeout, 8))
-    except socket.gaierror:
-        return {"listed": False, "zones": [], "answer": None}
+    except socket.gaierror as e:
+        # 区分「有效否定(NXDOMAIN/NODATA)」与「临时解析失败(EAI_AGAIN/EAI_FAIL 等)」
+        code = getattr(e, "errno", None)
+        if code is None and getattr(e, "args", None) and isinstance(e.args[0], int):
+            code = e.args[0]
+        notfound = {getattr(socket, "EAI_NONAME", None), getattr(socket, "EAI_NODATA", None), 11001}
+        notfound.discard(None)
+        if code in notfound:
+            return {"listed": False, "zones": [], "answer": None}
+        raise RuntimeError("Spamhaus DNS 解析失败(%s)，结果未知（不能当作未上榜）" % code)
     except socket.timeout:
-        raise RuntimeError("Spamhaus DNS 查询超时")
+        raise RuntimeError("Spamhaus DNS 查询超时，结果未知（不能当作未上榜）")
     if ans.startswith("127.255.255."):
         raise RuntimeError("Spamhaus 拒绝当前 DNS 出口（公共解析器/超量），请直连或降低频率")
     # DNSBL 正常只有两种应答：NXDOMAIN(未上榜) 或 127.0.0.x(上榜)。

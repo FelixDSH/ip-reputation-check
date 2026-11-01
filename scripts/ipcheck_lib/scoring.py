@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # 由 tools/make_pkg.py 从 ipcheck.py 自动拆分生成，请勿手改结构注释。
 import argparse
 import concurrent.futures as cf
@@ -376,7 +376,24 @@ def aggregate(ip, results):
     decisions = compute_decisions(ip_type, flags_view, scores_view, geo)
     platforms = compute_platforms(flags_view, geo, net_view, scores_view, ip_type)
 
-    # 数据不足：没有任何源成功 → 结论必须是“无法判定”，绝不能当“干净住宅”
+    def _ok(src):
+        return bool(get.get(src) and get[src]["ok"])
+
+    # 按维度判断"证据是否充分"，而不是按成功接口数量
+    geo_evidence = bool(geo.get("country"))
+    type_evidence = (
+        any(x is not None for x in (proxy, vpn, hosting, mobile))
+        or bool(proxycheck.get("type"))
+        or (iphub.get("block") is not None)
+        or bool(maxmind)
+        or bool(asn_org and any(k in (asn_org or "").lower() for k in CLOUD_HINTS))
+    )
+    rep_evidence = any(_ok(s) for s in ("spamhaus", "virustotal", "abuseipdb",
+                                        "stopforumspam", "blocklistde", "ipsum"))
+
+    if not type_evidence:
+        ip_type = "未知（网络类型证据不足）"
+
     if ok_count == 0:
         ip_type = "未知（数据不足）"
         risk_score, risk_level = None, "unknown"
@@ -386,6 +403,15 @@ def aggregate(ip, results):
         confidence["proxy"] = {"level": "unknown", "n": 0}
         confidence["vpn"] = {"level": "unknown", "n": 0}
         confidence["hosting"] = {"level": "unknown", "n": 0}
+    else:
+        if not rep_evidence:
+            # 没有任何滥用/信誉来源成功 → 绝不能给出"干净/低风险"
+            confidence["abuse"] = {"level": "unknown", "note": "无滥用/信誉来源成功，信誉未知"}
+            if risk_level in ("clean", "low"):
+                risk_score, risk_level = None, "unknown"
+        if not (type_evidence and rep_evidence):
+            # 证据不充分 → 不生成平台"绿色"建议
+            platform_fit, platforms, decisions = [], [], []
 
     return {
         "ip": ip,
@@ -524,6 +550,21 @@ def _local_agg(ip):
     }
 
 
+def _nonempty(v):
+    if v is None or v == "":
+        return False
+    if isinstance(v, (list, dict)) and len(v) == 0:
+        return False
+    return True  # 注意：False 是有效数据（明确的"否"）
+
+
+def _has_fields(d):
+    """源返回是否含至少一个有效字段（全 None / 空 dict 视为无有效数据）。"""
+    if not isinstance(d, dict):
+        return bool(d)
+    return any(_nonempty(v) for v in d.values())
+
+
 def check_ip(ip, only=None, timeout=DEFAULT_TIMEOUT):
     # 非公网地址（私网/环回/保留/CGNAT）不发外网查询
     try:
@@ -540,7 +581,7 @@ def check_ip(ip, only=None, timeout=DEFAULT_TIMEOUT):
             n = futs[fut]
             try:
                 d = fut.result()
-                if not d:  # 空响应 / 无有效字段 ≠ 成功
+                if not d or not _has_fields(d):  # 空响应/全 null ≠ 成功
                     results.append({"source": n, "ok": False, "data": {}, "error": "空响应/无有效字段"})
                 else:
                     results.append({"source": n, "ok": True, "data": d, "error": None})
@@ -552,6 +593,7 @@ def check_ip(ip, only=None, timeout=DEFAULT_TIMEOUT):
     return aggregate(ip, results)
 
 
-__all__ = ['_coherent_geo', '_vote', '_conf_bool', '_conf_cat', '_platform_level', '_platform_fit', '_type_reason', '_abuse_hit', 'compute_decisions', 'compute_platforms', 'aggregate', '_pick_bool', '_hosting_from_org', 'classify_ip_type', 'compute_risk', 'risk_label', 'check_ip', '_local_agg']
+__all__ = ['_coherent_geo', '_vote', '_conf_bool', '_conf_cat', '_platform_level', '_platform_fit', '_type_reason', '_abuse_hit', 'compute_decisions', 'compute_platforms', 'aggregate', '_pick_bool', '_hosting_from_org', 'classify_ip_type', 'compute_risk', 'risk_label', 'check_ip', '_local_agg', '_has_fields', '_nonempty']
+
 
 

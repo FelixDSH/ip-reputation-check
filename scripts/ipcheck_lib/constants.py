@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # 由 tools/make_pkg.py 从 ipcheck.py 自动拆分生成，请勿手改结构注释。
 import argparse
 import concurrent.futures as cf
@@ -19,7 +19,7 @@ import urllib.request
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/125.0 Safari/537.36")
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 DEFAULT_TIMEOUT = 12
 
@@ -114,3 +114,4 @@ DECISION_LABEL = {"ok": "✅ 较适合", "warn": "⚠️ 谨慎", "no": "⛔ 风
 
 
 __all__ = ['UA', 'VERSION', 'DEFAULT_TIMEOUT', 'RISK_W_PROXY', 'RISK_W_VPN', 'RISK_W_HOSTING', 'RISK_W_TOR', 'RISK_W_MOBILE', 'RISK_T_CLEAN', 'RISK_T_LOW', 'RISK_T_MEDIUM', 'CLOUD_HINTS', 'PLATFORM_PROFILES', 'AI_RESTRICTED', 'PLATFORMS', 'SERVICE_REGIONS', 'SOURCE_LABEL', 'SOURCE_TIER', 'TIER_WEIGHT', 'DECISION_LABEL']
+
