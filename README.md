@@ -111,6 +111,9 @@ ipinfo.io、iphub.info、scamalytics.com、abuseipdb.com 手动输入——非�
 | **VirusTotal** | 70+ 引擎聚合恶意判定 | 可选 `VIRUSTOTAL_API_KEY` |
 | **DB-IP** | 地理（正规数据商，免 key 交叉源） | 否 |
 | **MaxMind GeoLite2** | 地理（最权威，本地库） | 免费 License Key + `maxminddb` |
+| **RDAP（RIR 登记）** | 地址登记组织 / 分配范围 / 状态（"分配给谁"） | 否 |
+| **RIPEstat（BGP）** | 当前是否宣告 / 覆盖前缀 / 起源 ASN（"路由归属"） | 否 |
+| **Tor 官方出口** | 是否在某时点的 Tor 出口名单中 | 否 |
 
 缺 key 的源会自动跳过并在报告里标注，不影响其它指标。
 Spamhaus 走 DNS 查询：若本机用 Clash/Surge 等 **Fake-IP** 模式，DNS 会被劫持成 `198.18.x.x`，工具会判为"DNS 返回异常、结果不可信"并跳过——**不会**把它当成"未上榜/干净"。
@@ -205,7 +208,7 @@ ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only .
 ipcheck watch [IP...] [--egress] [--interval 60] [--rounds N]   # 监控变化/漂移
 ```
 
-`--only` 可选值：`ipinfo,ipapi,ipwhois,proxycheck,scamalytics,iphub,abuseipdb,stopforumspam,blocklistde,ipsum,spamhaus,virustotal,dbip,maxmind`
+`--only` 可选值：`ipinfo,ipapi,ipwhois,proxycheck,scamalytics,iphub,abuseipdb,stopforumspam,blocklistde,ipsum,spamhaus,virustotal,dbip,maxmind,rdap,ripe_bgp,tor_exit`
 
 客户端相关环境变量：`IPCHECK_GATEWAY`（网关地址）、`IPCHECK_GATEWAY_TOKEN`（网关令牌）。
 服务端（网关）相关：`IPHUB_API_KEY`、`ABUSEIPDB_API_KEY`、`IPINFO_TOKEN`、`GATEWAY_TOKEN`。
@@ -450,6 +453,21 @@ python scripts/ipcheck.py watch --egress --interval 30
 - **空响应/缺字段/错误页** 视为该源失败，不算"未命中"。
 - **私有/环回/保留/CGNAT 地址** 本地识别，不向公共信誉接口发送。
 - **PBL 策略名单**（住宅因不应直发邮件入列）不算恶意行为。
+
+## 证据可追溯（P1）
+
+报表对每个主要结论给出**支持/反对来源 + 证据强度**，并把"登记归属"和"路由归属"分开：
+```
+登记(RDAP)  : NET-8-8-8-0-2 / 8.8.8.0 - 8.8.8.255 / Google LLC
+路由(BGP)   : 8.8.8.0/24 announced=True origin AS15169 (GOOGLE - Google LLC)
+证据强度    :
+  代理 =否 强度:低 支持:proxycheck.io 反对:ip-api.com
+  托管 =是 强度:高 支持:ip-api.com,proxycheck.io,ipinfo.io 反对:-
+  地理 =US 强度:高 支持:DB-IP,ipinfo.io,ip-api.com,... 反对:-
+```
+- **RDAP ≠ BGP ≠ 实际使用者**：登记归属（谁登记）、路由归属（谁宣告）、实际使用（谁在用）三者不一致不一定异常。
+- **Tor 官方名单**优先于社区标记；未命中≠不是任何代理。
+- 证据强度是"来源等级 × 一致度"，不是统计置信区间。
 
 ## 风险判定模型
 

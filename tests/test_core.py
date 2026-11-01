@@ -208,6 +208,41 @@ class TestCsv(unittest.TestCase):
         self.assertIn("'@x", lines[1])
 
 
+class TestP1Evidence(unittest.TestCase):
+    def test_rdap_parse(self):
+        obj = {"handle": "NET-8-8-8-0-2", "name": "GOGL", "startAddress": "8.8.8.0",
+               "endAddress": "8.8.8.255", "country": "US", "status": ["active"],
+               "entities": [{"roles": ["registrant"],
+                             "vcardArray": ["vcard", [["fn", {}, "text", "Google LLC"]]]}]}
+        with mock.patch.object(S, "http_get", fake_get_json(obj)):
+            d = ic.src_rdap("8.8.8.8", 5)
+        self.assertEqual(d["org"], "Google LLC")
+        self.assertEqual(d["handle"], "NET-8-8-8-0-2")
+        self.assertEqual(d["start"], "8.8.8.0")
+
+    def test_bgp_parse(self):
+        obj = {"data": {"announced": True, "resource": "8.8.8.0/24",
+                        "asns": [{"asn": 15169, "holder": "GOOGLE"}]}}
+        with mock.patch.object(S, "http_get", fake_get_json(obj)):
+            d = ic.src_ripe_bgp("8.8.8.8", 5)
+        self.assertTrue(d["announced"])
+        self.assertEqual(d["origin_asn"], 15169)
+        self.assertEqual(d["prefix"], "8.8.8.0/24")
+
+    def test_tor_official_list(self):
+        with mock.patch.object(S, "_load_tor", lambda timeout: {"1.2.3.4"}):
+            self.assertTrue(ic.src_tor_exit("1.2.3.4", 5)["is_tor"])
+        with mock.patch.object(S, "_load_tor", lambda timeout: {"1.2.3.4"}):
+            self.assertFalse(ic.src_tor_exit("9.9.9.9", 5)["is_tor"])
+
+    def test_conf_exposes_support_oppose(self):
+        c = ic._conf_bool([("proxycheck", False), ("ipapi", True)])
+        self.assertIn("support", c)
+        self.assertIn("oppose", c)
+        self.assertTrue(c["support"])
+        self.assertTrue(c["oppose"])
+
+
 class TestP0Guards(unittest.TestCase):
     def test_private_ip_skips_public_query(self):
         agg = ic.check_ip("10.0.0.1")

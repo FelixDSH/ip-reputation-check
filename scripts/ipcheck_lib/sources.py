@@ -20,7 +20,8 @@ from ipcheck_lib.http import *  # noqa: F401,F403
 
 ALL_SOURCES = ["ipinfo", "ipapi", "ipwhois", "proxycheck", "scamalytics",
                "iphub", "abuseipdb", "stopforumspam", "blocklistde", "ipsum",
-               "spamhaus", "virustotal", "dbip", "maxmind"]
+               "spamhaus", "virustotal", "dbip", "maxmind",
+               "rdap", "ripe_bgp", "tor_exit"]
 
 def src_ipinfo(ip, timeout):
     token = os.environ.get("IPINFO_TOKEN", "").strip()
@@ -423,6 +424,63 @@ def src_maxmind(ip, timeout):
         "asn_org": traits.get("autonomous_system_organization"),
     }
 
+def src_rdap(ip, timeout):
+    """免 key：RIR RDAP 登记信息（地址资源登记组织/范围/状态）。回答“分配给谁”，非“现在谁在用”。"""
+    _, txt = http_get("https://rdap.org/ip/%s" % ip,
+                      headers={"Accept": "application/rdap+json"}, timeout=max(timeout, 15))
+    d = _j(txt)
+    if d.get("errorCode"):
+        raise RuntimeError(d.get("title") or "RDAP 查询失败")
+    org = None
+    for e in (d.get("entities") or []):
+        if "registrant" in (e.get("roles") or []):
+            vc = e.get("vcardArray") or []
+            for item in (vc[1] if len(vc) > 1 else []):
+                if item and item[0] == "fn":
+                    org = item[3]
+                    break
+            if org:
+                break
+    return {"handle": d.get("handle"), "name": d.get("name"),
+            "start": d.get("startAddress"), "end": d.get("endAddress"),
+            "country": d.get("country"), "status": d.get("status"),
+            "type": d.get("type"), "org": org}
+
+
+def src_ripe_bgp(ip, timeout):
+    """免 key：RIPEstat BGP 路由归属（当前是否宣告、覆盖前缀、起源 ASN）。回答“路由归属”，非“安全”。"""
+    _, txt = http_get("https://stat.ripe.net/data/prefix-overview/data.json?resource=%s" % ip,
+                      timeout=timeout)
+    d = _j(txt).get("data", {}) or {}
+    asns = d.get("asns") or []
+    first = asns[0] if asns else {}
+    return {"announced": d.get("announced"), "prefix": d.get("resource"),
+            "asns": [{"asn": a.get("asn"), "holder": a.get("holder")} for a in asns],
+            "origin_asn": first.get("asn"), "origin_holder": first.get("holder")}
+
+
+_TOR_DATA = None
+_TOR_TS = 0.0
+_TOR_TTL = 12 * 3600
+
+
+def _load_tor(timeout):
+    global _TOR_DATA, _TOR_TS
+    now = time.time()
+    if _TOR_DATA is not None and now - _TOR_TS < _TOR_TTL:
+        return _TOR_DATA
+    _, txt = http_get("https://check.torproject.org/torbulkexitlist", timeout=max(timeout, 20))
+    s = set(l.strip() for l in txt.splitlines() if l.strip() and not l.startswith("#"))
+    _TOR_DATA, _TOR_TS = s, now
+    return s
+
+
+def src_tor_exit(ip, timeout):
+    """免 key：Tor 官方出口名单（某时点）。未命中≠不是任何代理。"""
+    s = _load_tor(timeout)
+    return {"is_tor": ip in s, "total": len(s)}
+
+
 SOURCES = {
     "ipinfo": src_ipinfo,
     "ipapi": src_ipapi,
@@ -438,6 +496,9 @@ SOURCES = {
     "virustotal": src_virustotal,
     "dbip": src_dbip,
     "maxmind": src_maxmind,
+    "rdap": src_rdap,
+    "ripe_bgp": src_ripe_bgp,
+    "tor_exit": src_tor_exit,
 }
 
 def set_only_sources(names):
@@ -447,4 +508,4 @@ def set_only_sources(names):
 
 
 
-__all__ = ['ALL_SOURCES', 'src_ipinfo', 'src_ipapi', 'src_ipwhois', 'src_proxycheck', 'src_scamalytics', 'src_iphub', 'src_abuseipdb', 'src_stopforumspam', 'src_blocklistde', '_IPSUM_LOCK', '_IPSUM_DATA', '_IPSUM_TS', '_IPSUM_TTL', '_load_ipsum', 'src_ipsum', '_dns_query_a', 'src_spamhaus', 'src_virustotal', 'src_dbip', '_MMDB_CACHE', '_ascii_path', '_maxmind_path', 'src_maxmind', 'SOURCES', 'set_only_sources']
+__all__ = ['ALL_SOURCES', 'src_ipinfo', 'src_ipapi', 'src_ipwhois', 'src_proxycheck', 'src_scamalytics', 'src_iphub', 'src_abuseipdb', 'src_stopforumspam', 'src_blocklistde', '_IPSUM_LOCK', '_IPSUM_DATA', '_IPSUM_TS', '_IPSUM_TTL', '_load_ipsum', 'src_ipsum', '_dns_query_a', 'src_spamhaus', 'src_virustotal', 'src_dbip', '_MMDB_CACHE', '_ascii_path', '_maxmind_path', 'src_maxmind', 'src_rdap', 'src_ripe_bgp', '_TOR_DATA', '_TOR_TS', '_TOR_TTL', '_load_tor', 'src_tor_exit', 'SOURCES', 'set_only_sources']

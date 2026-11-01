@@ -97,10 +97,12 @@ SOURCE_LABEL = {
     "stopforumspam": "stopforumspam.com", "blocklistde": "blocklist.de",
     "ipsum": "IPsum(聚合黑名单)", "spamhaus": "Spamhaus DNSBL",
     "virustotal": "VirusTotal", "dbip": "DB-IP", "maxmind": "MaxMind GeoLite2",
+    "rdap": "RDAP(登记)", "ripe_bgp": "RIPEstat(BGP)", "tor_exit": "Tor官方出口",
 }
 
 SOURCE_TIER = {
     "ipinfo": "A", "spamhaus": "A", "virustotal": "A", "maxmind": "A", "dbip": "A",
+    "rdap": "A", "ripe_bgp": "A", "tor_exit": "A",
     "ipapi": "B", "proxycheck": "B", "blocklistde": "B",
     "ipwhois": "C", "iphub": "C", "scamalytics": "C",
     "abuseipdb": "C", "stopforumspam": "C", "ipsum": "C",

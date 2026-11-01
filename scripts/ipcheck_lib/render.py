@@ -111,6 +111,15 @@ def render_report(agg, color=True):
     if net.get("type"):
         lines.append("网络类型    : " + str(net["type"]) + ((" / 用途:" + str(net["usage_type"])) if net.get("usage_type") else ""))
     lines.append("IP 类型     : " + (agg.get("ip_type") or "-"))
+    reg = net.get("registry") or {}
+    if reg.get("handle") or reg.get("org") or reg.get("name"):
+        lines.append("登记(RDAP)  : %s / %s / %s" % (
+            reg.get("handle") or "-", reg.get("range") or "-", reg.get("org") or reg.get("name") or "-"))
+    rt = net.get("routing") or {}
+    if rt.get("prefix") or rt.get("origin_asn") is not None:
+        lines.append("路由(BGP)   : %s announced=%s origin AS%s (%s)" % (
+            rt.get("prefix") or "-", rt.get("announced"), rt.get("origin_asn") or "?",
+            rt.get("origin_holder") or "-"))
     lines.append("-" * 60)
     lines.append("代理 Proxy  : " + _fmt_bool(fl.get("proxy")) +
                  "    VPN: " + _fmt_bool(fl.get("vpn")) +
@@ -164,6 +173,23 @@ def render_report(agg, color=True):
             (conf.get(k) or {}).get("level"), "-")
     lines.append("置信度      : 地理:%s  代理:%s  VPN:%s  托管:%s  滥用:%s"
                  % (_cl("geo"), _cl("proxy"), _cl("vpn"), _cl("hosting"), _cl("abuse")))
+    # 逐字段证据（支持/反对 + 强度）——可追溯
+    ev = []
+    for label, key in (("代理", "proxy"), ("VPN", "vpn"), ("托管", "hosting"), ("地理", "geo")):
+        cc = conf.get(key) or {}
+        if not cc:
+            continue
+        if key == "geo":
+            vtxt = str(cc.get("value")) if cc.get("value") else "未知"
+        else:
+            vtxt = "是" if cc.get("value") is True else ("否" if cc.get("value") is False else "未知")
+        ev.append("  %-3s=%s 强度:%s 支持:%s 反对:%s" % (
+            label, vtxt, _cl(key),
+            ",".join(cc.get("support") or []) or "-",
+            ",".join(cc.get("oppose") or []) or "-"))
+    if ev:
+        lines.append("证据强度    :")
+        lines.extend(ev)
     for note in agg.get("conflicts", []):
         lines.append(c.dim("备注        : " + note))
     lines.append("-" * 60)

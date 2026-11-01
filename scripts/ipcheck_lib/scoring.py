@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # 由 tools/make_pkg.py 从 ipcheck.py 自动拆分生成，请勿手改结构注释。
 import argparse
 import concurrent.futures as cf
@@ -82,7 +82,9 @@ def _conf_bool(votes):
         val = known[0][1]          # 平票取优先源（votes 已按可信度排序）
     else:
         val = tw_true > tw_false
-    return {"level": lvl, "n": n, "value": val}
+    support = [SOURCE_LABEL.get(s, s) for s, v in known if v == val]
+    oppose = [SOURCE_LABEL.get(s, s) for s, v in known if v != val]
+    return {"level": lvl, "n": n, "value": val, "support": support, "oppose": oppose}
 
 def _conf_cat(votes):
     """类别型结论（如国家）的置信度：按源等级加权求众数占比。"""
@@ -102,7 +104,9 @@ def _conf_cat(votes):
         lvl = "medium"
     else:
         lvl = "low"
-    return {"level": lvl, "n": n, "value": val}
+    support = [SOURCE_LABEL.get(s, s) for s, v in known if v == val]
+    oppose = [SOURCE_LABEL.get(s, s) for s, v in known if v != val]
+    return {"level": lvl, "n": n, "value": val, "support": support, "oppose": oppose}
 
 def _platform_level(score):
     if score < 25:
@@ -258,6 +262,7 @@ def aggregate(ip, results):
     bl = srcs["blocklistde"]
     ipsum = srcs["ipsum"]
     maxmind, dbip = srcs["maxmind"], srcs["dbip"]
+    rdap, bgp, tor_exit = srcs["rdap"], srcs["ripe_bgp"], srcs["tor_exit"]
 
     geo = _coherent_geo(srcs)
     asn_org = _pick(ipinfo.get("asn_org"), maxmind.get("asn_org"), ipapi.get("asn_org"),
@@ -290,7 +295,11 @@ def aggregate(ip, results):
     ]
     hosting = _vote(conflicts, "Hosting", hosting_votes)
     mobile = ipapi.get("mobile") if ipapi.get("mobile") is not None else None
-    tor = _pick_bool(abuse.get("is_tor"), iphub.get("tor"))
+    # Tor：官方出口名单优先（权威）；无该源时回退到 AbuseIPDB / iphub 标记
+    if bool(get.get("tor_exit") and get["tor_exit"]["ok"]):
+        tor = bool(tor_exit.get("is_tor"))
+    else:
+        tor = _pick_bool(abuse.get("is_tor"), iphub.get("tor"))
     ip_type = classify_ip_type(
         {"tor": tor, "vpn": vpn, "proxy": proxy, "hosting": hosting, "mobile": mobile},
         {"type": proxycheck.get("type")}, asn_org)
@@ -383,7 +392,17 @@ def aggregate(ip, results):
         "ip_type": ip_type,
         "geo": geo,
         "network": {"asn_org": asn_org, "isp": isp, "hostname": hostname,
-                    "usage_type": abuse.get("usage_type"), "type": proxycheck.get("type")},
+                    "usage_type": abuse.get("usage_type"), "type": proxycheck.get("type"),
+                    "registry": ({"handle": rdap.get("handle"), "name": rdap.get("name"),
+                                  "org": rdap.get("org"),
+                                  "range": ("%s - %s" % (rdap.get("start"), rdap.get("end"))
+                                            if rdap.get("start") else None),
+                                  "country": rdap.get("country")}
+                                 if get.get("rdap") and get["rdap"]["ok"] else {}),
+                    "routing": ({"prefix": bgp.get("prefix"), "announced": bgp.get("announced"),
+                                 "origin_asn": bgp.get("origin_asn"),
+                                 "origin_holder": bgp.get("origin_holder")}
+                                if get.get("ripe_bgp") and get["ripe_bgp"]["ok"] else {})},
         "flags": {"proxy": proxy, "vpn": vpn, "hosting": hosting, "mobile": mobile,
                   "tor": tor, "residential_proxy": iphub.get("residential_proxy")},
         "scores": {"fraud_score": fraud_score, "fraud_risk": fraud_risk,
@@ -395,7 +414,9 @@ def aggregate(ip, results):
                    "ipsum_listed": ipsum_listed, "ipsum_score": ipsum_score,
                    "spamhaus_listed": spamhaus_listed, "spamhaus_zones": spamhaus.get("zones"),
                    "spamhaus_malicious": spamhaus_malicious, "spamhaus_policy": spamhaus_policy,
-                   "vt_malicious": vt_mal, "vt_reputation": vt.get("reputation")},
+                   "vt_malicious": vt_mal, "vt_reputation": vt.get("reputation"),
+                   "tor_official": (bool(tor_exit.get("is_tor"))
+                                    if get.get("tor_exit") and get["tor_exit"]["ok"] else None)},
         "verdict": {"risk_score": risk_score, "risk_level": risk_level,
                     "label": risk_label(risk_level)},
         "confidence": confidence,
