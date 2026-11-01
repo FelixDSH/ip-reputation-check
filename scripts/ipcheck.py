@@ -567,7 +567,12 @@ def _conf_bool(votes):
         lvl = "medium"
     else:
         lvl = "low"
-    return {"level": lvl, "n": n, "value": tw_true >= (tw - tw_true)}
+    tw_false = tw - tw_true
+    if tw_true == tw_false:
+        val = known[0][1]          # 平票取优先源（votes 已按可信度排序）
+    else:
+        val = tw_true > tw_false
+    return {"level": lvl, "n": n, "value": val}
 
 
 def _conf_cat(votes):
