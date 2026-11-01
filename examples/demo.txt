@@ -1,0 +1,21 @@
+﻿============================================================
+IP 信誉检测报告  8.8.8.8
+============================================================
+位置        : United States Virginia Ashburn   时区 America/New_York
+ASN / 组织  : AS15169 Google LLC
+ISP         : Google LLC
+PTR 主机名  : dns.google
+网络类型    : Business
+------------------------------------------------------------
+代理 Proxy  : 否    VPN: 否    托管 Hosting: 是
+移动网络    : 否    Tor: 未知
+------------------------------------------------------------
+欺诈分(Scamalytics): 0/100  (Low Risk)
+滥用置信度(AbuseIPDB): —（需 ABUSEIPDB_API_KEY）
+------------------------------------------------------------
+综合判定    : 10/100  🟢 干净 / 低风险
+备注        : Proxy 源间不一致（proxycheck.io=否, ip-api.com=是），采用 proxycheck.io
+------------------------------------------------------------
+数据源 成功 : ipinfo.io, ip-api.com, ipwho.is, proxycheck.io, scamalytics.com
+数据源 跳过 : iphub.info(未配置 IPHUB_API_KEY，跳过), abuseipdb.com(未配置 ABUSEIPDB_API_KEY，跳过)
+============================================================
