@@ -98,6 +98,25 @@ PLATFORM_PROFILES = {
 # 常被主流 AI 服务限制的国家/地区（以平台最新政策为准，仅作提示）
 AI_RESTRICTED = {"CN", "RU", "IR", "KP", "SY", "CU", "BY", "VE", "MM"}
 
+# 具体平台规则库（cat=所属类别，strict=该类基线风险的放大系数，note=风控特点）
+PLATFORMS = {
+    "X (Twitter)": {"cat": "社交媒体(X/FB/IG/TikTok)", "strict": 1.05, "note": "机房/VPN 易触发手机号验证或封号"},
+    "Facebook/Instagram": {"cat": "社交媒体(X/FB/IG/TikTok)", "strict": 1.15, "note": "新号+机房IP 极易封，需养号"},
+    "TikTok": {"cat": "社交媒体(X/FB/IG/TikTok)", "strict": 1.2, "note": "强地区限制，需目标区住宅/移动IP"},
+    "Telegram": {"cat": "社交媒体(X/FB/IG/TikTok)", "strict": 0.55, "note": "对 VPN/代理较宽松"},
+    "WhatsApp": {"cat": "社交媒体(X/FB/IG/TikTok)", "strict": 0.8, "note": "需手机号，IP 敏感度中等"},
+    "Google/Gmail": {"cat": "注册/论坛/爬虫", "strict": 1.1, "note": "机房IP注册常要手机验证"},
+    "OpenAI/ChatGPT": {"cat": "AI工具(OpenAI/Claude/Gemini)", "strict": 1.1, "note": "杀机房 + 地区限制"},
+    "Claude": {"cat": "AI工具(OpenAI/Claude/Gemini)", "strict": 1.1, "note": "杀机房 + 地区限制"},
+    "Gemini": {"cat": "AI工具(OpenAI/Claude/Gemini)", "strict": 0.9, "note": "机房较敏感"},
+    "Midjourney": {"cat": "AI工具(OpenAI/Claude/Gemini)", "strict": 0.8, "note": "走 Discord，IP 敏感度中"},
+    "Amazon": {"cat": "电商/支付(Amazon/PayPal)", "strict": 1.15, "note": "新号+代理IP 高风险"},
+    "PayPal": {"cat": "电商/支付(Amazon/PayPal)", "strict": 1.25, "note": "风控最严，机房/代理基本不可用"},
+    "Binance/交易所": {"cat": "电商/支付(Amazon/PayPal)", "strict": 1.3, "note": "KYC + 地区 + 设备风控极严"},
+    "Netflix": {"cat": "流媒体(Netflix/Spotify)", "strict": 1.0, "note": "封 VPN，需原生住宅"},
+    "Spotify": {"cat": "流媒体(Netflix/Spotify)", "strict": 0.65, "note": "地区限制为主"},
+}
+
 
 # --------------------------------------------------------------------------- #
 # HTTP 基础
@@ -740,6 +759,100 @@ def _platform_fit(flags, geo, net, scores):
     return out
 
 
+DECISION_LABEL = {"ok": "✅ 推荐", "warn": "⚠️ 谨慎", "no": "⛔ 不建议"}
+
+
+def _abuse_hit(scores):
+    return bool(scores.get("spamhaus_listed")) or \
+        (scores.get("vt_malicious") or 0) > 0 or \
+        (scores.get("abuse_confidence") or 0) >= 25 or bool(scores.get("ipsum_listed"))
+
+
+def compute_decisions(ip_type, flags, scores, geo):
+    """把信号收敛成「能不能注册 / 养号 / 爬 / 支付 / 流媒体」的可执行建议。"""
+    t = ip_type or ""
+    datacenter = "机房" in t
+    vpn = "VPN" in t
+    proxy = "代理" in t
+    tor = "Tor" in t
+    mobile = "移动" in t
+    residential = ("住宅" in t) and not (vpn or proxy or tor)
+    abuse = _abuse_hit(scores)
+    anon = vpn or proxy or tor
+    out = []
+
+    def add(use, lvl, reason):
+        out.append({"use": use, "level": lvl, "label": DECISION_LABEL[lvl], "reason": reason})
+
+    # 注册社媒/AI
+    if anon:
+        add("注册社媒/AI 账号", "no", "代理/VPN/Tor IP 极易被判异常、要求验证或封号")
+    elif datacenter:
+        add("注册社媒/AI 账号", "warn", "机房 IP 易触发手机验证；AI 常直接拦机房")
+    elif residential or mobile:
+        add("注册社媒/AI 账号", "warn" if abuse else "ok",
+            "住宅/移动 IP 但存在滥用记录" if abuse else "住宅/移动 IP，较像真人，成功率较高")
+    else:
+        add("注册社媒/AI 账号", "warn", "类型不确定，建议先用浏览器环境实测")
+
+    # 长期养号
+    if (residential or mobile) and not abuse:
+        add("长期养号", "ok", "住宅/移动 IP + 无滥用，适合养号（务必保持出口稳定）")
+    elif datacenter or anon:
+        add("长期养号", "no", "机房/代理/VPN IP 不利于长期养号，易被清理")
+    else:
+        add("长期养号", "warn", "存在风险信号，养号需谨慎")
+
+    # 爬虫/采集
+    if datacenter and not abuse:
+        add("爬虫/数据采集", "ok", "机房 IP 适合高并发采集（注意目标站反爬）")
+    elif abuse:
+        add("爬虫/数据采集", "warn", "有滥用记录，部分站点会直接封")
+    else:
+        add("爬虫/数据采集", "warn", "可用，但住宅 IP 做采集成本高/易触发")
+
+    # 电商/支付
+    if datacenter or anon or abuse:
+        add("电商/支付", "no", "风控最严，机房/代理/滥用 IP 基本不可用")
+    else:
+        add("电商/支付", "warn", "住宅 IP 可试，但支付类仍需 KYC 与行为验证")
+
+    # 流媒体
+    if vpn:
+        add("流媒体解锁", "warn", "VPN 可能被封（Netflix 等），需实测")
+    elif datacenter:
+        add("流媒体解锁", "warn", "机房 IP 多数流媒体会拦，原生住宅更稳")
+    else:
+        add("流媒体解锁", "ok", "住宅/原生 IP 解锁成功率较高")
+    return out
+
+
+def compute_platforms(flags, geo, net, scores):
+    """按具体平台给可用度（基于平台规则库 × 类别基线分）。"""
+    cat_scores = {item["category"]: item["score"] for item in _platform_fit(flags, geo, net, scores)}
+    cc = (geo.get("country_code") or "").upper()
+    out = []
+    for name, cfg in PLATFORMS.items():
+        base = cat_scores.get(cfg["cat"], 0)
+        score = min(100, round(base * cfg.get("strict", 1.0)))
+        if cfg["cat"].startswith("AI") and cc in AI_RESTRICTED:
+            score = max(score, 90)
+        lvl, label = _platform_level(score)
+        out.append({"platform": name, "score": score, "level": lvl, "label": label,
+                    "note": cfg.get("note", "")})
+    return out
+
+
+def render_platforms(agg):
+    rows = agg.get("platforms") or []
+    if not rows:
+        return ""
+    lines = ["各平台可用度(启发式,非平台真实判定):"]
+    for r in rows:
+        lines.append("  %s  %-18s %s" % (r["label"], r["platform"], r["note"]))
+    return "\n".join(lines)
+
+
 def aggregate(ip, results):
     get = {r["source"]: r for r in results}
     srcs = {name: (get[name]["data"] if get.get(name) and get[name]["ok"] else {})
@@ -847,11 +960,13 @@ def aggregate(ip, results):
         "abuse": conf_abuse,
     }
 
-    platform_fit = _platform_fit(
-        {"proxy": proxy, "vpn": vpn, "hosting": hosting, "mobile": mobile, "tor": tor},
-        geo, {"asn_org": asn_org},
-        {"spamhaus_listed": spamhaus_listed, "vt_malicious": vt_mal,
-         "abuse_confidence": abuse_conf, "ipsum_listed": ipsum_listed})
+    flags_view = {"proxy": proxy, "vpn": vpn, "hosting": hosting, "mobile": mobile, "tor": tor}
+    scores_view = {"spamhaus_listed": spamhaus_listed, "vt_malicious": vt_mal,
+                   "abuse_confidence": abuse_conf, "ipsum_listed": ipsum_listed}
+    net_view = {"asn_org": asn_org}
+    platform_fit = _platform_fit(flags_view, geo, net_view, scores_view)
+    decisions = compute_decisions(ip_type, flags_view, scores_view, geo)
+    platforms = compute_platforms(flags_view, geo, net_view, scores_view)
 
     return {
         "ip": ip,
@@ -874,6 +989,8 @@ def aggregate(ip, results):
                     "label": risk_label(risk_level)},
         "confidence": confidence,
         "platform_fit": platform_fit,
+        "platforms": platforms,
+        "decisions": decisions,
         "conflicts": conflicts,
         "sources": results,
     }
@@ -1171,6 +1288,12 @@ def render_report(agg, color=True):
         for item in pf:
             lines.append("  %s  %s  %s" % (item["label"], item["category"], item["reason"]))
         lines.append("-" * 60)
+    dec = agg.get("decisions") or []
+    if dec:
+        lines.append("使用建议(启发式,综合IP画像):")
+        for d in dec:
+            lines.append("  %s  %-14s %s" % (d["label"], d["use"], d["reason"]))
+        lines.append("-" * 60)
     ok = [SOURCE_LABEL[r["source"]] for r in agg["sources"] if r["ok"]]
     bad = [SOURCE_LABEL[r["source"]] + "(" + (r["error"] or "失败") + ")"
            for r in agg["sources"] if not r["ok"]]
@@ -1420,6 +1543,10 @@ def cmd_check(args):
             print(render_report(agg, color=color))
             if agg.get("env"):
                 print(render_env(agg["env"]))
+            if getattr(args, "platforms", False):
+                extra = render_platforms(agg)
+                if extra:
+                    print(extra)
         if getattr(args, "open", False):
             import webbrowser
             for u in ("https://www.abuseipdb.com/check/%s" % ip,
@@ -1455,6 +1582,7 @@ def build_parser():
     pc.add_argument("--brief", action="store_true", help="一行式简报")
     pc.add_argument("--open", action="store_true", help="检测后自动打开 abuseipdb/iphub 网页(IP已带入)")
     pc.add_argument("--env", action="store_true", help="附加环境一致性检测（本机时区/DNS vs IP，防关联指纹）")
+    pc.add_argument("--platforms", action="store_true", help="追加各具体平台(X/FB/TikTok/OpenAI/Claude/PayPal/Netflix 等)可用度")
     pc.add_argument("--gateway", default=None,
                     help="走自建网关（也可用环境变量 IPCHECK_GATEWAY），客户端无需任何源 key")
     pc.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)

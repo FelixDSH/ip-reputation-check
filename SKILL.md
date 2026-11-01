@@ -71,6 +71,9 @@ python scripts/ipcheck.py <IP> --env      # 检查某 IP 时附带环境一致�
 python scripts/ipcheck.py 8.8.8.8 --open
 python scripts/ipcheck.py open 8.8.8.8 --all
 
+# 追加具体平台结论（X/FB/TikTok/OpenAI/Claude/PayPal/Netflix...）
+python scripts/ipcheck.py 8.8.8.8 --platforms
+
 # 看当前出口 IP
 python scripts/ipcheck.py myip
 
@@ -101,6 +104,7 @@ python scripts/ipcheck.py check <IP> --gateway http://GATEWAY:8787
 | 综合判定 | 综合外部分与代理/VPN/Tor 信号计算的 0–100 风险分与等级 |
 | 置信度 | 地理/代理/VPN/托管/滥用 各自的 高/中/低：源等级 × 多源一致度。低=单一源或有冲突；滥用"低"≠干净 |
 | 平台适配度 | 该 IP 对 社媒/AI/电商/流媒体/注册 的可用度（🟢适用/🟡谨慎/🔴易被风控），启发式，非平台真实判定 |
+| 使用建议 | 决策化结论：能否注册/养号/爬虫/支付/流媒体（✅推荐/⚠️谨慎/⛔不建议） |
 
 判定等级：`<20 🟢 干净` / `20–49 🟡 中低` / `50–79 🟠 中高` / `≥80 🔴 高`。
 

@@ -152,7 +152,7 @@ $env:ABUSEIPDB_API_KEY="你的key"
 ## 命令行参数
 
 ```
-ipcheck check <IP...> [--json] [--brief] [--open] [--env] [--only a,b,...] [--gateway URL] [--timeout 12] [--no-color]
+ipcheck check <IP...> [--json] [--brief] [--open] [--env] [--platforms] [--only a,b,...] [--gateway URL] [--timeout 12] [--no-color]
 ipcheck open <IP> [--all] [--which abuseipdb,iphub,scamalytics,stopforumspam]
 ipcheck myip [--json]        # 出口 IP + 环境一致性
 ipcheck stability [--rounds N] [--interval S] [--interactive] [--json] [--only ...]
@@ -332,6 +332,32 @@ python scripts/ipcheck.py <IP> --env      # 检查某 IP 时附带环境比对
 > 这是**启发式初筛，不是平台真实判定**；各平台策略随时变，仅供「选 IP」参考。核心用途：避免「拿机房 IP 注册 AI/社媒 → 秒封」。
 
 想更贴近真实风控：接 IPQS / Spur（住宅代理识别）+ 维护「各平台机房封禁强度」规则表 + 用实测成功率反馈校准阈值。
+
+## 决策化输出 & 平台规则库
+
+报表在「平台适配度」之后给出**使用建议**，直接回答能不能干这几件事：
+```
+✅ 推荐   爬虫/数据采集     机房 IP 适合高并发采集
+⛔ 不建议  电商/支付        风控最严，机房/代理/滥用 IP 基本不可用
+⚠️ 谨慎   注册社媒/AI账号   机房 IP 易触发手机验证
+```
+
+加 `--platforms` 看**具体平台**结论（内置规则库）：
+```bash
+python scripts/ipcheck.py 8.8.8.8 --platforms
+```
+内置平台：X、Facebook/Instagram、TikTok、Telegram、WhatsApp、Google、OpenAI/ChatGPT、Claude、Gemini、Midjourney、Amazon、PayPal、Binance、Netflix、Spotify。
+
+平台风控强度（机房/VPN，供参考）：
+
+| 平台 | 风控特点 |
+|------|----------|
+| PayPal / Binance | 最严，机房/代理基本不可用 |
+| Facebook / Instagram / TikTok | 极严，新号 + 机房易封 |
+| OpenAI / Claude | 杀机房 + 地区限制 |
+| X / Google | 机房易触发手机验证 |
+| Netflix | 封 VPN，需原生住宅 |
+| Telegram | 对 VPN 较宽松 |
 
 ## 风险判定模型
 

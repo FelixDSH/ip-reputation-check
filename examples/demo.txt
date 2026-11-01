@@ -25,6 +25,29 @@ IP 类型     : VPN
   🔴 易被风控  流媒体(Netflix/Spotify)  代理, VPN
   🔴 易被风控  注册/论坛/爬虫  代理, VPN
 ------------------------------------------------------------
+使用建议(启发式,综合IP画像):
+  ⛔ 不建议  注册社媒/AI 账号     代理/VPN/Tor IP 极易被判异常、要求验证或封号
+  ⛔ 不建议  长期养号           机房/代理/VPN IP 不利于长期养号，易被清理
+  ⚠️ 谨慎  爬虫/数据采集        可用，但住宅 IP 做采集成本高/易触发
+  ⛔ 不建议  电商/支付          风控最严，机房/代理/滥用 IP 基本不可用
+  ⚠️ 谨慎  流媒体解锁          VPN 可能被封（Netflix 等），需实测
+------------------------------------------------------------
 数据源 成功 : ipinfo.io, ip-api.com, ipwho.is, proxycheck.io, scamalytics.com, stopforumspam.com, blocklist.de, IPsum(聚合黑名单), Spamhaus DNSBL, DB-IP
 数据源 跳过 : iphub.info(需人机验证(Turnstile)：配 IPHUB_API_KEY，或运行 scripts/iphub_browser.py <IP>，或设 IPHUB_TURNSTILE_TOKEN（详见 README「人机验证」）), abuseipdb.com(需免费 ABUSEIPDB_API_KEY（网页人工可查，程序化被 Cloudflare 拦，注册免费 1000/天）), VirusTotal(未配置 VIRUSTOTAL_API_KEY（免费注册可查 70+ 引擎）), MaxMind GeoLite2(未配置 MaxMind：运行 scripts/setup_geoip.py --license-key KEY 下载库，或设 GEOIP2_MMDB)
 ============================================================
+各平台可用度(启发式,非平台真实判定):
+  🔴 易被风控  X (Twitter)        机房/VPN 易触发手机号验证或封号
+  🔴 易被风控  Facebook/Instagram 新号+机房IP 极易封，需养号
+  🔴 易被风控  TikTok             强地区限制，需目标区住宅/移动IP
+  🟡 谨慎  Telegram           对 VPN/代理较宽松
+  🔴 易被风控  WhatsApp           需手机号，IP 敏感度中等
+  🔴 易被风控  Google/Gmail       机房IP注册常要手机验证
+  🔴 易被风控  OpenAI/ChatGPT     杀机房 + 地区限制
+  🔴 易被风控  Claude             杀机房 + 地区限制
+  🔴 易被风控  Gemini             机房较敏感
+  🔴 易被风控  Midjourney         走 Discord，IP 敏感度中
+  🔴 易被风控  Amazon             新号+代理IP 高风险
+  🔴 易被风控  PayPal             风控最严，机房/代理基本不可用
+  🔴 易被风控  Binance/交易所        KYC + 地区 + 设备风控极严
+  🔴 易被风控  Netflix            封 VPN，需原生住宅
+  🟡 谨慎  Spotify            地区限制为主
