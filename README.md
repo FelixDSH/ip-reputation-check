@@ -124,7 +124,7 @@ ipinfo.io、iphub.info、scamalytics.com、abuseipdb.com 手动输入——非�
 | **Tor 官方出口** | 是否在某时点的 Tor 出口名单中 | 否 |
 
 缺 key 的源会自动跳过并在报告里标注，不影响其它指标。
-Spamhaus 走 DNS 查询：若本机用 Clash/Surge 等 **Fake-IP** 模式，DNS 会被劫持成 `198.18.x.x`，工具会判为"DNS 返回异常、结果不可信"并跳过——**不会**把它当成"未上榜/干净"。
+Spamhaus 走 DNS 查询：若本机用 Clash/Surge 等 **Fake-IP** 模式，系统 DNS 会被劫持成 `198.18.x.x`，导致 DNSBL 不可信。工具会：**自动用 DoH 兜底——只采信"命中"（强证据），公网 DoH 的"否定"不作权威"未上榜"，一律判"未知"**；并提示"关闭 Fake-IP/改用 ISP DNS，或配 `ABUSEIPDB_API_KEY`（HTTPS API，不受 Fake-IP 影响）"。其它走 HTTPS 的源不受影响。
 
 ## 快速开始
 

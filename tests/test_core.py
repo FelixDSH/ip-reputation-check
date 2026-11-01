@@ -120,11 +120,20 @@ class TestParsers(unittest.TestCase):
         self.assertIn("人机验证", str(cm.exception))
 
     def test_spamhaus_fakeip_untrusted(self):
-        # Fake-IP DNS 返回 198.18.0.15 → 不能当“未命中”，必须报不可信
-        with mock.patch.object(S, "_dns_query_a", lambda *a, **k: "198.18.0.15"):
+        # Fake-IP DNS 返回 198.18.x；DoH 无权威否定 -> 结果未知（不得当未命中）
+        with mock.patch.object(S, "_dns_query_a", lambda *a, **k: "198.18.0.15"), \
+                mock.patch.object(S, "_doh_query_a", lambda *a, **k: ("nxdomain", None)):
             with self.assertRaises(RuntimeError) as cm:
                 ic.src_spamhaus("1.2.3.4", 5)
-        self.assertIn("不可信", str(cm.exception))
+        self.assertIn("Fake-IP", str(cm.exception))
+
+    def test_spamhaus_fakeip_doh_positive_rescued(self):
+        # Fake-IP 时 DoH 命中恶意名单 -> 采信为命中（via=doh），不当未知
+        with mock.patch.object(S, "_dns_query_a", lambda *a, **k: "198.18.0.15"), \
+                mock.patch.object(S, "_doh_query_a", lambda *a, **k: ("a", "127.0.0.2")):
+            d = ic.src_spamhaus("1.2.3.4", 5)
+        self.assertTrue(d["malicious"])
+        self.assertEqual(d["via"], "doh(公网解析器)")
 
     def test_spamhaus_not_listed(self):
         import socket as _s

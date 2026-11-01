@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # 由 tools/make_pkg.py 从 ipcheck.py 自动拆分生成，请勿手改结构注释。
 import argparse
 import concurrent.futures as cf
@@ -337,6 +337,27 @@ def _dns_query_a(name, timeout):
         raise box["e"]
     raise socket.timeout("dns timeout")
 
+def _doh_query_a(name, timeout):
+    """公共 DoH 查 A（系统 DNS 被 Fake-IP 劫持时兜底）。返回 ('a', ip) / ('nxdomain', None) / (None, None)。"""
+    q = urllib.parse.quote(name)
+    endpoints = [
+        ("https://dns.google/resolve?name=%s&type=A" % q, "application/dns-json"),
+        ("https://cloudflare-dns.com/dns-query?name=%s&type=A" % q, "application/dns-json"),
+    ]
+    for url, acc in endpoints:
+        try:
+            _, txt = http_get(url, headers={"Accept": acc}, timeout=min(timeout, 10), retries=0)
+            d = _j(txt)
+            for a in (d.get("Answer") or []):
+                if a.get("type") == 1 and a.get("data"):
+                    return "a", a["data"].strip()
+            if d.get("Status") == 3:
+                return "nxdomain", None
+        except Exception:
+            continue
+    return None, None
+
+
 def src_spamhaus(ip, timeout):
     """免 key：Spamhaus ZEN DNSBL（SBL/XBL/PBL，权威反垃圾/被入侵源名单）。"""
     from ipaddress import ip_address
@@ -357,17 +378,25 @@ def src_spamhaus(ip, timeout):
         notfound = {getattr(socket, "EAI_NONAME", None), getattr(socket, "EAI_NODATA", None), 11001}
         notfound.discard(None)
         if code in notfound:
-            return {"listed": False, "zones": [], "answer": None}
+            return {"listed": False, "zones": [], "answer": None, "via": "system"}
         raise RuntimeError("Spamhaus DNS 解析失败(%s)，结果未知（不能当作未上榜）" % code)
     except socket.timeout:
         raise RuntimeError("Spamhaus DNS 查询超时，结果未知（不能当作未上榜）")
+    via = "system"
     if ans.startswith("127.255.255."):
-        raise RuntimeError("Spamhaus 拒绝当前 DNS 出口（公共解析器/超量），请直连或降低频率")
-    # DNSBL 正常只有两种应答：NXDOMAIN(未上榜) 或 127.0.0.x(上榜)。
-    # 若解析器返回其它地址（如 Clash/Surge 的 Fake-IP 198.18.0.0/15、0.0.0.0 等），
-    # 说明 DNS 被本地代理接管 → 结果不可信，必须报错而不是当成“未命中”。
+        raise RuntimeError("Spamhaus 拒绝当前 DNS 出口（公共解析器/超量）；若为 Fake-IP 请关闭或改用 ISP DNS")
     if not ans.startswith("127.0.0."):
-        raise RuntimeError("DNS 返回异常(%s)，疑似 Fake-IP/本地代理 DNS，Spamhaus 结果不可信" % ans)
+        # 系统 DNS 被 Fake-IP/代理劫持：用 DoH 兜底；只采信"命中"，公网否定不作权威"未上榜"
+        kind, doh_ip = _doh_query_a(rev, timeout)
+        if kind == "a" and doh_ip and doh_ip.startswith("127.0.0."):
+            ans = doh_ip
+            via = "doh(公网解析器)"
+        elif kind == "a" and doh_ip and doh_ip.startswith("127.255.255."):
+            raise RuntimeError("系统DNS为Fake-IP(%s)，DoH 也被 Spamhaus 拒绝；结果未知"
+                               "（关闭 Fake-IP/改用 ISP DNS，或配 ABUSEIPDB_API_KEY）" % ans)
+        else:
+            raise RuntimeError("系统DNS为Fake-IP(%s)，公网DoH无法给出权威结论；结果未知"
+                               "（关闭 Fake-IP/改用 ISP DNS，或配 ABUSEIPDB_API_KEY）" % ans)
     # 名单语义区分：SBL/XBL(CSS)/DROP = 实际垃圾邮件/被入侵/攻击源（恶意）；
     # PBL = 发信策略名单（住宅网络常因不应直发邮件而入列，与网页/账号安全无关，不应判为恶意）。
     malicious_codes = {"127.0.0.2": "SBL", "127.0.0.3": "XBL/CSS", "127.0.0.9": "DROP"}
@@ -382,7 +411,7 @@ def src_spamhaus(ip, timeout):
     else:
         zones = ["UNKNOWN"]
     return {"listed": True, "zones": zones, "malicious": malicious,
-            "policy": policy, "answer": ans}
+            "policy": policy, "answer": ans, "via": via}
 
 def src_virustotal(ip, timeout):
     """可选 key：VirusTotal 70+ 引擎聚合判定（免费 key 限速 4/分）。"""
@@ -602,6 +631,7 @@ def set_only_sources(names):
 
 
 
-__all__ = ['ALL_SOURCES', 'src_ipinfo', 'src_ipapi', 'src_ipwhois', 'src_proxycheck', 'src_scamalytics', 'src_iphub', 'src_abuseipdb', 'src_stopforumspam', 'src_blocklistde', '_IPSUM_LOCK', '_IPSUM_DATA', '_IPSUM_TS', '_IPSUM_TTL', '_load_ipsum', 'src_ipsum', '_dns_query_a', 'src_spamhaus', 'src_virustotal', 'src_dbip', '_MMDB_CACHE', '_ascii_path', '_maxmind_path', 'src_maxmind', 'src_rdap', 'src_ripe_bgp', '_TOR_DATA', '_TOR_TS', '_TOR_TTL', '_load_tor', 'src_tor_exit', '_iso', '_looks_ip', 'parse_scamalytics_html', 'SOURCES', 'set_only_sources']
+__all__ = ['ALL_SOURCES', 'src_ipinfo', 'src_ipapi', 'src_ipwhois', 'src_proxycheck', 'src_scamalytics', 'src_iphub', 'src_abuseipdb', 'src_stopforumspam', 'src_blocklistde', '_IPSUM_LOCK', '_IPSUM_DATA', '_IPSUM_TS', '_IPSUM_TTL', '_load_ipsum', 'src_ipsum', '_dns_query_a', 'src_spamhaus', 'src_virustotal', 'src_dbip', '_MMDB_CACHE', '_ascii_path', '_maxmind_path', 'src_maxmind', 'src_rdap', 'src_ripe_bgp', '_TOR_DATA', '_TOR_TS', '_TOR_TTL', '_load_tor', 'src_tor_exit', '_iso', '_looks_ip', 'parse_scamalytics_html', '_doh_query_a', 'SOURCES', 'set_only_sources']
+
 
 
