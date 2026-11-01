@@ -184,7 +184,7 @@ def main():
     args = ap.parse_args()
 
     if args.only:
-        ipcheck.ALL_SOURCES = [x.strip() for x in args.only.split(",") if x.strip()]
+        ipcheck.set_only_sources([x.strip() for x in args.only.split(",") if x.strip()])
 
     Handler.gateway_token = args.token or None
     Handler.ttl = args.ttl

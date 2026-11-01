@@ -25,6 +25,25 @@ python scripts/ipcheck.py 8.8.8.8 --brief    # 一行式简报
 | iphub：代理类型细分（住宅/机房/住宅代理） | 免费 `IPHUB_API_KEY`；或本机跑 `scripts/iphub_browser.py` 人工过验证 |
 | abuseipdb：滥用置信度 | 免费 `ABUSEIPDB_API_KEY`；或 `ipcheck.py open <IP>` 打开网页人工看（网页免 key） |
 
+## 项目结构（已拆包）
+
+```
+scripts/
+├── ipcheck.py            # 入口 shim（向后兼容，所有 ipcheck.<name> 仍可用）
+└── ipcheck_lib/
+    ├── constants.py      # 版本/权重/平台·服务规则库等常量
+    ├── http.py           # HTTP/JSON、DNS 查询、通用取值助手
+    ├── sources.py        # 14 个情报源适配器 + 注册表
+    ├── scoring.py        # 聚合、风险评分、置信度、类型/平台决策
+    ├── render.py         # 报表 / 简报 / JSON 渲染
+    ├── env.py            # 出口 IP、时区/DNS 环境一致性
+    ├── csvio.py          # 批量 CSV 导出、地区可用性
+    └── cli.py            # 子命令与参数解析
+gateway.py / setup_geoip.py / iphub_browser.py   # 独立工具
+tests/  (test_core.py, test_consistency.py)
+```
+入口仍是 `scripts/ipcheck.py`；`build.ps1` 用 PyInstaller onefile 打单文件 exe，兼顾"拆包维护"与"单文件分发"。
+
 ## 自检 / 测试
 
 ```bash

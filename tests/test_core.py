@@ -4,10 +4,10 @@
 test_core.py — 核心逻辑单元测试
 ===============================
 
-覆盖审计点名的"裸奔"部分：各源 parser 字段映射、_vote 冲突、_coherent_geo、
-compute_risk 阈值、_conf_bool 平票、classify_ip_type、CSV 公式注入防护、iphub 游客/验证码分支。
+覆盖：各源 parser 字段映射、_vote 冲突、_coherent_geo、compute_risk 阈值、
+_conf_bool 平票、classify_ip_type、CSV 公式注入、iphub 游客/验证码分支。
 
-全部用 unittest.mock 打桩 http_get / http_post_json，不联网。
+打桩打在 ipcheck_lib.sources（源适配器所在模块），不联网。
 运行：  python tests/test_core.py
 """
 import os
@@ -20,9 +20,13 @@ from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
+
 spec = importlib.util.spec_from_file_location("ic", os.path.join(ROOT, "scripts", "ipcheck.py"))
 ic = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ic)
+
+import ipcheck_lib.sources as S  # noqa: E402  源适配器现在在此模块，需在此打桩
 
 
 def fake_get_json(obj):
@@ -44,14 +48,14 @@ class TestParsers(unittest.TestCase):
                "timezone": "America/Los_Angeles", "isp": "Google", "org": "Google LLC",
                "as": "AS15169 Google LLC", "reverse": "dns.google", "mobile": False,
                "proxy": False, "hosting": True}
-        with mock.patch.object(ic, "http_get", fake_get_json(obj)):
+        with mock.patch.object(S, "http_get", fake_get_json(obj)):
             d = ic.src_ipapi("8.8.8.8", 5)
         self.assertEqual(d["country_code"], "US")
         self.assertEqual(d["hosting"], True)
         self.assertEqual(d["asn_org"], "AS15169 Google LLC")
 
     def test_ipapi_fail(self):
-        with mock.patch.object(ic, "http_get", fake_get_json({"status": "fail", "message": "x"})):
+        with mock.patch.object(S, "http_get", fake_get_json({"status": "fail", "message": "x"})):
             with self.assertRaises(RuntimeError):
                 ic.src_ipapi("1.2.3.4", 5)
 
@@ -59,32 +63,32 @@ class TestParsers(unittest.TestCase):
         obj = {"status": "ok", "8.8.8.8": {"proxy": "no", "type": "Business",
                                             "asn": "AS15169", "country": "United States",
                                             "isocode": "US", "risk": 0}}
-        with mock.patch.object(ic, "http_get", fake_get_json(obj)):
+        with mock.patch.object(S, "http_get", fake_get_json(obj)):
             d = ic.src_proxycheck("8.8.8.8", 5)
         self.assertEqual(d["proxy"], False)
         self.assertEqual(d["type"], "Business")
 
     def test_stopforumspam(self):
         obj = {"success": 1, "ip": {"value": "1.2.3.4", "frequency": 85, "appears": 1}}
-        with mock.patch.object(ic, "http_get", fake_get_json(obj)):
+        with mock.patch.object(S, "http_get", fake_get_json(obj)):
             d = ic.src_stopforumspam("1.2.3.4", 5)
         self.assertEqual(d["frequency"], 85)
 
     def test_blocklistde(self):
-        with mock.patch.object(ic, "http_get", fake_get_json({"attacks": 3, "reports": 2})):
+        with mock.patch.object(S, "http_get", fake_get_json({"attacks": 3, "reports": 2})):
             d = ic.src_blocklistde("1.2.3.4", 5)
         self.assertEqual(d["attacks"], 3)
 
     def test_dbip(self):
         obj = {"countryCode": "JP", "countryName": "Japan", "stateProv": "Kanagawa", "city": "Kawasaki"}
-        with mock.patch.object(ic, "http_get", fake_get_json(obj)):
+        with mock.patch.object(S, "http_get", fake_get_json(obj)):
             d = ic.src_dbip("212.68.185.88", 5)
         self.assertEqual(d["country_code"], "JP")
         self.assertEqual(d["city"], "Kawasaki")
 
     def test_scamalytics_html(self):
         html = "<div>Fraud Score: 42</div><span>High Risk</span>"
-        with mock.patch.object(ic, "http_get", fake_get_text(html)), \
+        with mock.patch.object(S, "http_get", fake_get_text(html)), \
                 mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("SCAMALYTICS_USER", None)
             os.environ.pop("SCAMALYTICS_KEY", None)
@@ -98,7 +102,7 @@ class TestParsers(unittest.TestCase):
                   "countryName": "Japan", "hostname": "h",
                   "proxyType": {"proxy": False, "tor": False, "hosting": True,
                                 "residentialProxy": False, "relay": False, "cloudGaming": False}}}
-        with mock.patch.object(ic, "http_post_json", lambda *a, **k: (200, json.dumps(sample))), \
+        with mock.patch.object(S, "http_post_json", lambda *a, **k: (200, json.dumps(sample))), \
                 mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("IPHUB_API_KEY", None)
             d = ic.src_iphub("1.2.3.4", 5)
@@ -108,7 +112,7 @@ class TestParsers(unittest.TestCase):
 
     def test_iphub_captcha(self):
         cap = {"success": False, "error": "Human verification required", "captchaRequired": True}
-        with mock.patch.object(ic, "http_post_json", lambda *a, **k: (200, json.dumps(cap))), \
+        with mock.patch.object(S, "http_post_json", lambda *a, **k: (200, json.dumps(cap))), \
                 mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("IPHUB_API_KEY", None)
             with self.assertRaises(RuntimeError) as cm:
@@ -120,12 +124,12 @@ class TestScoring(unittest.TestCase):
     def test_risk_thresholds(self):
         self.assertEqual(ic.compute_risk(0, None, False, False, False, False, False)[1], "clean")
         self.assertEqual(ic.compute_risk(0, None, False, False, True, False, False)[0], 10)  # hosting
-        self.assertEqual(ic.compute_risk(0, None, True, True, False, False, False)[1], "medium")  # proxy30+vpn35=65
+        self.assertEqual(ic.compute_risk(0, None, True, True, False, False, False)[1], "medium")  # proxy+vpn=65
         self.assertEqual(ic.compute_risk(0, None, False, False, False, True, False)[0], 60)  # tor
         self.assertEqual(ic.compute_risk(85, None, False, False, False, False, False)[1], "high")
 
     def test_conf_bool_tie_uses_priority(self):
-        c = ic._conf_bool([("proxycheck", False), ("ipapi", True)])  # B 与 B 平票
+        c = ic._conf_bool([("proxycheck", False), ("ipapi", True)])  # 平票取优先源
         self.assertFalse(c["value"])
         self.assertEqual(c["level"], "low")
 
@@ -137,7 +141,6 @@ class TestScoring(unittest.TestCase):
     def test_classify_type(self):
         base = {"tor": False, "vpn": False, "proxy": False, "hosting": False, "mobile": False}
         self.assertEqual(ic.classify_ip_type(base, {"type": "Business"}, "Acme Corp"), "企业网络")
-        self.assertIn("企业", ic.classify_ip_type(base, {"type": "Business"}, "Acme Corp"))
         self.assertEqual(ic.classify_ip_type({**base, "hosting": True}, {}, "Google LLC"), "机房/云主机")
         self.assertEqual(ic.classify_ip_type({**base, "mobile": True}, {}, "China Mobile"), "移动网络(4G/5G)")
         self.assertEqual(ic.classify_ip_type({**base, "vpn": True}, {}, "X"), "VPN")
